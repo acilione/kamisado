@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kamisado Online</title>
+    <link rel="stylesheet" href="/style.css">
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/client.js" defer></script>
+</head>
+
+<body>
+    <div id="app">
+        <!-- Menu Screen -->
+        <div id="menu-screen">
+            <h1>Kamisado</h1>
+            <div class="menu-group">
+                <h3>Create Game</h3>
+                <div class="form-group">
+                    <label for="match-type">Match Length:</label>
+                    <select id="match-type">
+                        <option value="1">Single Round (1 Pt)</option>
+                        <option value="3" selected>Standard (3 Pts)</option>
+                        <option value="7">Long (7 Pts)</option>
+                        <option value="15">Marathon (15 Pts)</option>
+                    </select>
+                </div>
+                <label>Time Limit: <select id="timer">
+                        <option value="0">No Limit</option>
+                        <option value="60">1 Minute</option>
+                        <option value="180">3 Minutes</option>
+                        <option value="300">5 Minutes</option>
+                        <option value="600">10 Minutes</option>
+                        <option value="1800">30 Minutes</option>
+                    </select></label>
+                <label>Color:
+                    <select id="color-mode">
+                        <option value="random">Random</option>
+                        <option value="black">Black</option>
+                        <option value="white">White</option>
+                    </select>
+                </label>
+                <label>Position Mode:
+                    <select id="position-mode">
+                        <option value="standard">Standard</option>
+                        <option value="fill">Fill (Advanced)</option>
+                        <option value="random">Random</option>
+                    </select>
+                </label>
+                <button id="create-btn">Create Game</button>
+            </div>
+
+            <div class="divider">OR</div>
+
+            <div class="menu-group">
+                <h3>Join Game</h3>
+                <input type="text" id="join-id" placeholder="Enter Game ID">
+                <button id="join-btn">Join</button>
+            </div>
+
+            <div class="menu-group">
+                <button id="tutorial-toggle" style="background:#555;width:100%;">How to Play</button>
+                <div id="tutorial-content" class="hidden" style="text-align:left;margin-top:15px;line-height:1.6;">
+                    <h4 style="margin:0 0 8px;text-align:center;">Kamisado Rules</h4>
+                    <p><strong>Goal:</strong> Move one of your towers to the opponent's home row (the row closest to them).</p>
+
+                    <p><strong>Setup:</strong> Each player has 8 colored towers on their home row. The board has 64 colored squares in a fixed pattern. Black moves first.</p>
+
+                    <h4 style="margin:12px 0 6px;">Movement</h4>
+                    <ul style="padding-left:20px;margin:0;">
+                        <li>Towers move <strong>forward only</strong> &mdash; straight or diagonally.</li>
+                        <li>Towers cannot jump over other pieces.</li>
+                        <li>After a move, your opponent <strong>must</strong> move the tower whose color matches the square you landed on.</li>
+                        <li>If that tower is blocked and cannot move, the turn passes back. If both are blocked (deadlock), the last player who moved wins the round.</li>
+                    </ul>
+
+                    <h4 style="margin:12px 0 6px;">Rounds & Scoring</h4>
+                    <ul style="padding-left:20px;margin:0;">
+                        <li>A round ends when a tower reaches the opponent's home row.</li>
+                        <li>The winning tower earns points equal to its <strong>sumo rank + 1</strong> (minimum 1).</li>
+                        <li>First player to reach the match target score wins.</li>
+                    </ul>
+
+                    <h4 style="margin:12px 0 6px;">Sumo Ranks</h4>
+                    <ul style="padding-left:20px;margin:0;">
+                        <li>A tower that wins a round is promoted (max rank 3). The rank number is shown on the piece.</li>
+                        <li><strong>Rank 1 (Sumo):</strong> Max 5 spaces, can push 1 opponent piece.</li>
+                        <li><strong>Rank 2 (Double):</strong> Max 3 spaces, can push up to 2 pieces.</li>
+                        <li><strong>Rank 3 (Triple):</strong> Max 1 space, can push up to 3 pieces.</li>
+                        <li>Pushes are <strong>straight forward only</strong>, against adjacent opponent pieces of lower rank.</li>
+                        <li>After a push, you get another turn. The next required color is the square the pushed piece landed on.</li>
+                    </ul>
+
+                    <h4 style="margin:12px 0 6px;">Position Modes</h4>
+                    <ul style="padding-left:20px;margin:0;">
+                        <li><strong>Standard:</strong> Towers reset to the default starting positions each round.</li>
+                        <li><strong>Fill:</strong> After round 1, the round winner chooses to rearrange pieces by filling from the left or right based on end-of-round positions.</li>
+                        <li><strong>Random:</strong> Each round uses a randomly drawn position layout from 37 predefined setups.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" class="hidden">
+            <div id="status-bar">
+                <div id="turn-indicator">Waiting...</div>
+                <div id="message"></div>
+            </div>
+            <div id="board-container">
+                <div id="board"></div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

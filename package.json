@@ -1,0 +1,35 @@
+{
+  "name": "kamisado",
+  "version": "1.0.0",
+  "description": "Multiplayer Kamisado board game with real-time gameplay, sumo mechanics, and chess-style timers",
+  "main": "dist/server/index.js",
+  "scripts": {
+    "build": "tsc && node build-client.js",
+    "start": "node dist/server/index.js",
+    "dev": "tsx watch src/server/index.ts",
+    "test:unit": "tsx tests/unit/test_game_features.ts && tsx tests/unit/test_sumo.ts && tsx tests/unit/test_rules_comprehensive.ts && tsx tests/unit/test_timer.ts",
+    "test:integration": "tsx tests/integration/test_game_basics.ts && tsx tests/integration/test_reconnection.ts && tsx tests/integration/test_spectator.ts && tsx tests/integration/test_link_system.ts && tsx tests/integration/test_lobby_refresh.ts",
+    "ngrok": "node scripts/start-ngrok.js"
+  },
+  "keywords": [
+    "kamisado",
+    "board-game",
+    "multiplayer",
+    "socket.io",
+    "typescript"
+  ],
+  "author": "acilione",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.2.3",
+    "esbuild": "^0.27.3",
+    "socket.io-client": "^4.7.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

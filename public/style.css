@@ -1,0 +1,375 @@
+:root {
+    --bg-color: #1a1a1a;
+    --text-color: #ffffff;
+    --cell-size: 60px;
+    /* Desktop default */
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+.hidden {
+    display: none !important;
+}
+
+#app {
+    width: 100%;
+    max-width: 800px;
+    text-align: center;
+}
+
+/* Menu Styles */
+.menu-group {
+    background: #333;
+    padding: 20px;
+    border-radius: 8px;
+    margin: 10px auto;
+    max-width: 400px;
+}
+
+.menu-group input,
+.menu-group select {
+    padding: 8px;
+    margin: 5px;
+    border-radius: 4px;
+    border: none;
+}
+
+button {
+    padding: 10px 20px;
+    background: #4CAF50;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+button:hover {
+    background: #45a049;
+}
+
+/* Game Board */
+#board-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 20px;
+}
+
+#board {
+    display: grid;
+    grid-template-columns: repeat(8, var(--cell-size));
+    grid-template-rows: repeat(8, var(--cell-size));
+    border: 5px solid #444;
+}
+
+.cell {
+    width: var(--cell-size);
+    height: var(--cell-size);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    position: relative;
+}
+
+.cell.selected {
+    box-shadow: inset 0 0 0 4px yellow;
+}
+
+/* Board Square Colors */
+.cell.orange {
+    background-color: #FF8C00;
+}
+
+.cell.blue {
+    background-color: #1E90FF;
+}
+
+.cell.purple {
+    background-color: #800080;
+}
+
+.cell.pink {
+    background-color: #FF69B4;
+}
+
+.cell.yellow {
+    background-color: #FFD700;
+}
+
+.cell.red {
+    background-color: #DC143C;
+}
+
+.cell.green {
+    background-color: #228B22;
+}
+
+.cell.brown {
+    background-color: #8B4513;
+}
+
+/* Pieces */
+.piece {
+    width: 80%;
+    height: 80%;
+    border-radius: 50%;
+    border: 3px solid white;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: bold;
+    color: #fff;
+    text-shadow: 0 0 2px #000;
+}
+
+.piece.black {
+    border-color: #000;
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+}
+
+.piece.white {
+    border-color: #fff;
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+}
+
+/* Piece Colors (Inner) */
+.piece.orange {
+    background: #FF8C00;
+}
+
+.piece.blue {
+    background: #1E90FF;
+}
+
+/* ... repeat specific styles if needed? No, standard colors match squares usually */
+/* Actually piece color IS the color of the dragon */
+
+/* If piece color matches cell color it might be invisible? */
+/* We need better contrast */
+/* Let's add patterns or darker shades for pieces */
+.piece.orange {
+    background: radial-gradient(circle, #FFA500, #8B4500);
+}
+
+.piece.blue {
+    background: radial-gradient(circle, #1E90FF, #00008B);
+}
+
+.piece.purple {
+    background: radial-gradient(circle, #800080, #4B0082);
+}
+
+.piece.pink {
+    background: radial-gradient(circle, #FF69B4, #C71585);
+}
+
+.piece.yellow {
+    background: radial-gradient(circle, #FFD700, #B8860B);
+}
+
+.piece.red {
+    background: radial-gradient(circle, #DC143C, #8B0000);
+}
+
+.piece.green {
+    background: radial-gradient(circle, #32CD32, #006400);
+}
+
+.piece.brown {
+    background: radial-gradient(circle, #A0522D, #8B4513);
+}
+
+/* Highlight Playable */
+.piece.playable {
+    transform: scale(1.1);
+    border: 3px solid #00ff00;
+    /* Green border for playable */
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.1);
+    }
+
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* Status Bar */
+#status-bar {
+    padding: 10px;
+    margin-bottom: 10px;
+}
+
+#turn-indicator {
+    font-size: 1.2rem;
+    font-weight: bold;
+    padding: 8px;
+    border-radius: 4px;
+}
+
+#turn-indicator.black {
+    background: linear-gradient(135deg, #333, #111);
+    color: white;
+}
+
+#turn-indicator.white {
+    background: linear-gradient(135deg, #fff, #ddd);
+    color: black;
+}
+
+#turn-indicator > button {
+    display: block;
+    margin: 10px auto 0;
+}
+
+#message {
+    margin-top: 10px;
+    font-size: 1rem;
+    min-height: 24px;
+}
+
+/* Timer Container */
+#timer-container {
+    background: rgba(0, 0, 0, 0.7);
+    border-radius: 8px;
+    padding: 10px 20px;
+}
+
+/* Mobile Responsive Styles */
+@media (max-width: 600px) {
+    :root {
+        --cell-size: 11vw;
+    }
+
+    body {
+        padding: 10px;
+        align-items: flex-start;
+        padding-top: 20px;
+    }
+
+    h1 {
+        font-size: 1.5rem;
+        margin: 10px 0;
+    }
+
+    #app {
+        padding: 0 5px;
+    }
+
+    /* Menu improvements */
+    .menu-group {
+        padding: 15px;
+        margin: 8px auto;
+    }
+
+    .menu-group h3 {
+        margin: 0 0 10px 0;
+        font-size: 1rem;
+    }
+
+    .menu-group input,
+    .menu-group select {
+        width: 100%;
+        padding: 12px;
+        margin: 5px 0;
+        font-size: 16px; /* Prevents iOS zoom */
+        box-sizing: border-box;
+    }
+
+    button {
+        width: 100%;
+        padding: 14px 20px;
+        font-size: 1rem;
+        margin-top: 10px;
+        touch-action: manipulation;
+    }
+
+    /* Board improvements */
+    #board-container {
+        margin-top: 10px;
+        overflow-x: auto;
+    }
+
+    #board {
+        border-width: 2px;
+    }
+
+    .cell {
+        touch-action: manipulation;
+    }
+
+    .piece {
+        border-width: 2px;
+    }
+
+    /* Status bar mobile */
+    #status-bar {
+        padding: 8px;
+    }
+
+    #turn-indicator {
+        font-size: 1rem;
+        padding: 6px 10px;
+    }
+
+    #message {
+        font-size: 0.9rem;
+    }
+
+    /* Timer mobile */
+    #timer-container {
+        padding: 8px 15px;
+        font-size: 1rem !important;
+        margin-bottom: 5px;
+    }
+
+    #timer-black,
+    #timer-white {
+        font-size: 0.9rem;
+    }
+
+    /* Buttons inside turn indicator */
+    #turn-indicator button {
+        width: auto;
+        padding: 10px 15px;
+        font-size: 0.9rem;
+    }
+}
+
+/* Extra small screens */
+@media (max-width: 400px) {
+    :root {
+        --cell-size: 10vw;
+    }
+
+    h1 {
+        font-size: 1.2rem;
+    }
+
+    .menu-group {
+        padding: 10px;
+    }
+
+    #timer-container {
+        flex-direction: column;
+        gap: 5px;
+    }
+}
