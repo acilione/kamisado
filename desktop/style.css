@@ -1,0 +1,61 @@
+:root {
+    color: #edf1f7;
+    background: #11151c;
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: radial-gradient(circle at top, #253044 0, #11151c 45%); }
+main { width: min(100%, 600px); margin: 0 auto; padding: 34px 32px 24px; }
+header { margin-bottom: 28px; }
+.eyebrow { margin: 0 0 6px; color: #78a7ff; font-size: 12px; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; }
+h1 { margin: 0; font-size: 38px; letter-spacing: -.035em; }
+.intro { margin: 10px 0 0; color: #aab4c5; line-height: 1.55; }
+
+fieldset { margin: 0; padding: 0; border: 0; }
+legend { margin-bottom: 10px; font-size: 13px; font-weight: 700; color: #c6cfdd; }
+.mode { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; padding: 14px; border: 1px solid #313b4b; border-radius: 12px; background: rgba(20, 26, 36, .8); cursor: pointer; }
+.mode.selected { border-color: #6298fa; background: rgba(52, 91, 157, .22); box-shadow: 0 0 0 1px rgba(98, 152, 250, .2); }
+.mode input { margin-top: 4px; accent-color: #6fa1ff; }
+.mode span { display: grid; gap: 4px; }
+.mode strong { font-size: 15px; }
+.mode small { color: #9da9bb; line-height: 1.4; }
+
+.options { margin: 18px 0; }
+.options > label { display: block; margin-bottom: 8px; font-size: 13px; font-weight: 700; }
+.options label span { color: #8995a7; font-weight: 500; }
+.options p { margin: 8px 2px 0; color: #8f9bad; font-size: 12px; line-height: 1.45; }
+input[type="text"], input[type="password"] { width: 100%; padding: 12px 13px; border: 1px solid #354154; border-radius: 9px; outline: none; color: #f4f7fb; background: #0d1118; font: inherit; }
+input:focus { border-color: #72a2fa; box-shadow: 0 0 0 3px rgba(78, 136, 240, .16); }
+
+button { padding: 10px 14px; border: 1px solid #3c485a; border-radius: 9px; color: #e8edf5; background: #202938; font: inherit; font-weight: 650; cursor: pointer; }
+button:hover:not(:disabled) { background: #2a3547; }
+button:disabled { opacity: .55; cursor: wait; }
+button.primary { width: 100%; border-color: #5287e8; color: white; background: #3976e5; }
+button.primary:hover:not(:disabled) { background: #4a84ed; }
+button.link { padding: 0; border: 0; color: #84adfa; background: transparent; font-size: inherit; }
+
+#status-panel { padding: 18px; border: 1px solid #334157; border-radius: 14px; background: rgba(20, 27, 38, .86); }
+.status-heading { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 18px; }
+#status-dot { flex: 0 0 auto; width: 10px; height: 10px; margin-top: 7px; border-radius: 50%; background: #4bd686; box-shadow: 0 0 14px rgba(75, 214, 134, .8); }
+h2 { margin: 0 0 4px; font-size: 19px; }
+#status-description { margin: 0; color: #9eabba; font-size: 13px; line-height: 1.5; }
+.warning, .error { margin: 12px 0; padding: 11px 12px; border-radius: 8px; font-size: 13px; line-height: 1.45; }
+.warning { border: 1px solid #715d2a; color: #edce7f; background: #292414; }
+.error { border: 1px solid #743a42; color: #ffafb9; background: #2a171b; }
+.origin-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 9px 0; padding: 10px 11px; border-radius: 9px; background: #0e131b; }
+.origin-row div { min-width: 0; display: grid; gap: 4px; }
+.origin-row small { color: #8491a4; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
+.origin-row code { overflow: hidden; color: #d9e4f5; text-overflow: ellipsis; white-space: nowrap; }
+.origin-row button { flex: 0 0 auto; padding: 7px 10px; font-size: 12px; }
+.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+
+footer { display: flex; justify-content: space-between; gap: 12px; margin-top: 24px; color: #748094; font-size: 11px; }
+footer code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hidden { display: none !important; }
+
+@media (max-width: 560px) {
+    main { padding: 24px 18px; }
+    .actions { grid-template-columns: 1fr; }
+}

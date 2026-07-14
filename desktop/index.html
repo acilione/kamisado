@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+    <title>Kamisado Host</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="renderer.js" defer></script>
+</head>
+<body>
+    <main>
+        <header>
+            <p class="eyebrow">Kamisado desktop</p>
+            <h1>Host a room</h1>
+            <p class="intro">The game server runs entirely on this computer. Choose how the other player reaches it.</p>
+        </header>
+
+        <section id="setup-panel">
+            <fieldset id="mode-picker">
+                <legend>Connection</legend>
+                <label class="mode selected">
+                    <input type="radio" name="mode" value="ngrok" checked>
+                    <span><strong>ngrok</strong><small>Reliable internet link; the guest joins from any browser.</small></span>
+                </label>
+                <label class="mode">
+                    <input type="radio" name="mode" value="direct">
+                    <span><strong>Direct P2P</strong><small>No intermediary. Best on LAN or with router port forwarding.</small></span>
+                </label>
+            </fieldset>
+
+            <div id="ngrok-options" class="options">
+                <label for="auth-token">ngrok authtoken</label>
+                <input id="auth-token" type="password" autocomplete="off" spellcheck="false" placeholder="Paste token for this session">
+                <p>The token stays in memory and is never saved. <button type="button" class="link" data-external="https://dashboard.ngrok.com/get-started/your-authtoken">Find my token</button></p>
+            </div>
+
+            <div id="direct-options" class="options hidden">
+                <label for="advertised-origin">Public address <span>(optional)</span></label>
+                <input id="advertised-origin" type="text" autocomplete="off" spellcheck="false" placeholder="http://your-public-ip:32145">
+                <p>Leave empty for LAN play. For internet play, forward TCP port <strong id="server-port">—</strong> in your router and enter its public address.</p>
+            </div>
+
+            <button id="start-button" class="primary" type="button">Start internet room</button>
+        </section>
+
+        <section id="status-panel" class="hidden" aria-live="polite">
+            <div class="status-heading">
+                <span id="status-dot"></span>
+                <div><h2 id="status-title">Room ready</h2><p id="status-description"></p></div>
+            </div>
+            <div id="warning" class="warning hidden"></div>
+            <div id="origins"></div>
+            <div class="actions">
+                <button id="open-game-button" class="primary" type="button">Open game</button>
+                <button id="change-button" type="button">Change connection</button>
+            </div>
+        </section>
+
+        <section id="error-panel" class="error hidden" aria-live="assertive"></section>
+
+        <footer>
+            <span>Local server</span>
+            <code id="local-origin">starting…</code>
+        </footer>
+    </main>
+</body>
+</html>
