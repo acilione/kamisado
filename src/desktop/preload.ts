@@ -6,6 +6,7 @@ const api: KamisadoDesktopApi = {
     getState: () => ipcRenderer.invoke('hosting:get-state'),
     startHosting: (request: StartHostingRequest) => ipcRenderer.invoke('hosting:start', request),
     stopHosting: () => ipcRenderer.invoke('hosting:stop'),
+    forgetNgrokToken: () => ipcRenderer.invoke('settings:forget-ngrok-token'),
     openGame: () => ipcRenderer.invoke('game:open'),
     copyText: (value: string) => ipcRenderer.invoke('clipboard:write', value),
     openExternal: (url: string) => ipcRenderer.invoke('external:open', url),

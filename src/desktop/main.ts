@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, safeStorage, shell } from 'electron';
 import path from 'path';
 
 import { setPublicOrigin, startServer, type RunningServer } from '../server/index.js';
@@ -7,6 +7,7 @@ import { NgrokConnectivityProvider } from './connectivity/ngrok-provider.js';
 import { ConnectivityProviderManager } from './connectivity/provider-manager.js';
 import type { ConnectivityMode } from './connectivity/types.js';
 import type { DesktopState, StartHostingRequest } from './contracts.js';
+import { TokenVault } from './token-vault.js';
 
 const DEFAULT_DESKTOP_PORT = 32145;
 const manager = new ConnectivityProviderManager({
@@ -17,11 +18,15 @@ const manager = new ConnectivityProviderManager({
 let controlWindow: BrowserWindow | null = null;
 let gameWindow: BrowserWindow | null = null;
 let runningServer: RunningServer | null = null;
+let tokenVault: TokenVault | null = null;
+let savedNgrokToken: string | null = null;
 let state: DesktopState = {
     status: 'idle',
     localOrigin: '',
     port: 0,
     connectivity: null,
+    hasSavedNgrokToken: false,
+    canSaveNgrokToken: false,
 };
 
 function desktopAsset(...segments: string[]): string {
@@ -115,11 +120,27 @@ function validateStartRequest(value: unknown): StartHostingRequest {
     if (request.authToken !== undefined && (typeof request.authToken !== 'string' || request.authToken.length > 2048)) {
         throw new Error('Invalid ngrok token.');
     }
+    if (request.rememberAuthToken !== undefined && typeof request.rememberAuthToken !== 'boolean') {
+        throw new Error('Invalid token storage preference.');
+    }
     if (request.advertisedOrigin !== undefined &&
         (typeof request.advertisedOrigin !== 'string' || request.advertisedOrigin.length > 2048)) {
         throw new Error('Invalid public address.');
     }
     return request as StartHostingRequest;
+}
+
+function canUseSecureTokenStorage(): boolean {
+    if (!safeStorage.isEncryptionAvailable()) return false;
+    return process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text';
+}
+
+function updateTokenState(): void {
+    state = {
+        ...state,
+        hasSavedNgrokToken: savedNgrokToken !== null,
+        canSaveNgrokToken: tokenVault !== null,
+    };
 }
 
 function publicError(error: unknown): string {
@@ -133,20 +154,43 @@ function registerIpcHandlers(): void {
         try {
             const request = validateStartRequest(rawRequest);
             state = { ...state, status: 'starting', connectivity: null, error: undefined };
+            const authToken = request.authToken?.trim() || savedNgrokToken || undefined;
             const connectivity = await manager.start(request.mode as ConnectivityMode, {
                 port: state.port,
                 localOrigin: state.localOrigin,
             }, {
-                authToken: request.authToken,
+                authToken,
                 advertisedOrigin: request.advertisedOrigin,
             });
+            if (request.mode === 'ngrok' && request.authToken?.trim() &&
+                request.rememberAuthToken !== undefined && tokenVault) {
+                try {
+                    if (request.rememberAuthToken) {
+                        await tokenVault.save(request.authToken);
+                        savedNgrokToken = request.authToken.trim();
+                    } else {
+                        await tokenVault.clear();
+                        savedNgrokToken = null;
+                    }
+                } catch (error) {
+                    console.warn('Unable to update secure ngrok settings:', publicError(error));
+                }
+            }
             setPublicOrigin(connectivity.publicOrigin);
             state = { ...state, status: 'ready', connectivity, error: undefined };
+            updateTokenState();
             await openGameWindow();
         } catch (error) {
+            await manager.stop().catch(() => undefined);
             setPublicOrigin(null);
             state = { ...state, status: 'error', connectivity: null, error: publicError(error) };
         }
+        return state;
+    });
+    ipcMain.handle('settings:forget-ngrok-token', async () => {
+        await tokenVault?.clear();
+        savedNgrokToken = null;
+        updateTokenState();
         return state;
     });
     ipcMain.handle('hosting:stop', async () => {
@@ -186,11 +230,20 @@ if (!hasSingleInstanceLock) {
     app.whenReady().then(async () => {
         registerIpcHandlers();
         runningServer = await startLocalServer();
+        if (canUseSecureTokenStorage()) {
+            tokenVault = new TokenVault(path.join(app.getPath('userData'), 'secure-settings.json'), {
+                encrypt: value => safeStorage.encryptString(value),
+                decrypt: value => safeStorage.decryptString(value),
+            });
+            savedNgrokToken = await tokenVault.load();
+        }
         state = {
             status: 'idle',
             localOrigin: `http://127.0.0.1:${runningServer.port}`,
             port: runningServer.port,
             connectivity: null,
+            hasSavedNgrokToken: savedNgrokToken !== null,
+            canSaveNgrokToken: tokenVault !== null,
         };
         createControlWindow();
 

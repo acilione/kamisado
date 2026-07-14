@@ -1,19 +1,50 @@
 const api = window.kamisadoDesktop;
 const setupPanel = document.getElementById('setup-panel');
 const statusPanel = document.getElementById('status-panel');
+const tokenSetup = document.getElementById('token-setup');
+const quickActions = document.querySelector('.quick-actions');
 const errorPanel = document.getElementById('error-panel');
-const startButton = document.getElementById('start-button');
-const ngrokOptions = document.getElementById('ngrok-options');
-const directOptions = document.getElementById('direct-options');
+const onlineButton = document.getElementById('online-button');
+const lanButton = document.getElementById('lan-button');
+const tokenContinue = document.getElementById('token-continue');
+let currentState = null;
 
-function selectedMode() {
-    return document.querySelector('input[name="mode"]:checked').value;
+function setBusy(busy, message = 'Connessione…') {
+    [onlineButton, lanButton, tokenContinue].forEach(button => { button.disabled = busy; });
+    tokenContinue.textContent = busy ? message : 'Salva e continua';
+    document.querySelectorAll('input').forEach(input => {
+        input.disabled = busy || (input.id === 'remember-token' && currentState && !currentState.canSaveNgrokToken);
+    });
 }
 
-function setBusy(busy) {
-    startButton.disabled = busy;
-    startButton.textContent = busy ? 'Starting…' : selectedMode() === 'ngrok' ? 'Start internet room' : 'Start direct room';
-    document.querySelectorAll('input').forEach(input => { input.disabled = busy; });
+function showTokenSetup() {
+    quickActions.classList.add('hidden');
+    tokenSetup.classList.remove('hidden');
+    errorPanel.classList.add('hidden');
+    document.getElementById('auth-token').focus();
+}
+
+function hideTokenSetup() {
+    tokenSetup.classList.add('hidden');
+    quickActions.classList.remove('hidden');
+}
+
+function showLocalError(message) {
+    errorPanel.textContent = message;
+    errorPanel.classList.remove('hidden');
+}
+
+async function startHosting(request) {
+    setBusy(true);
+    errorPanel.classList.add('hidden');
+    try {
+        render(await api.startHosting(request));
+    } catch (error) {
+        showLocalError(error.message || String(error));
+    } finally {
+        document.getElementById('auth-token').value = '';
+        setBusy(false);
+    }
 }
 
 function renderOrigins(origins) {
@@ -25,17 +56,17 @@ function renderOrigins(origins) {
         row.className = 'origin-row';
         const content = document.createElement('div');
         const label = document.createElement('small');
-        label.textContent = index === 0 ? 'Invitation base address' : 'Alternative address';
+        label.textContent = index === 0 ? 'Indirizzo principale' : 'Indirizzo alternativo';
         const code = document.createElement('code');
         code.textContent = origin;
         content.append(label, code);
         const copy = document.createElement('button');
         copy.type = 'button';
-        copy.textContent = 'Copy';
+        copy.textContent = 'Copia';
         copy.addEventListener('click', async () => {
             await api.copyText(origin);
-            copy.textContent = 'Copied';
-            setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
+            copy.textContent = 'Copiato';
+            setTimeout(() => { copy.textContent = 'Copia'; }, 1500);
         });
         row.append(content, copy);
         container.append(row);
@@ -43,8 +74,22 @@ function renderOrigins(origins) {
 }
 
 function render(state) {
-    document.getElementById('local-origin').textContent = state.localOrigin || 'starting…';
+    currentState = state;
+    document.getElementById('local-origin').textContent = state.localOrigin || 'avvio…';
     document.getElementById('server-port').textContent = state.port || '—';
+    document.getElementById('saved-token-row').classList.toggle('hidden', !state.hasSavedNgrokToken);
+    document.getElementById('online-description').textContent = state.hasSavedNgrokToken
+        ? 'Pronto all’uso. L’altro giocatore può usare qualsiasi browser.'
+        : 'Funziona da qualsiasi rete. La prima volta richiede un account gratuito.';
+
+    const remember = document.getElementById('remember-token');
+    remember.disabled = !state.canSaveNgrokToken;
+    remember.checked = state.canSaveNgrokToken;
+    document.getElementById('remember-row').classList.toggle('disabled', !state.canSaveNgrokToken);
+    document.getElementById('storage-note').textContent = state.canSaveNgrokToken
+        ? 'Il token sarà cifrato dal sistema operativo e non verrà mai mostrato.'
+        : 'L’archiviazione sicura non è disponibile: il token varrà solo per questa sessione.';
+
     errorPanel.classList.toggle('hidden', state.status !== 'error');
     errorPanel.textContent = state.error || '';
 
@@ -53,8 +98,10 @@ function render(state) {
     statusPanel.classList.toggle('hidden', !ready);
 
     if (ready) {
-        document.getElementById('status-title').textContent = state.connectivity.title;
-        document.getElementById('status-description').textContent = state.connectivity.description;
+        hideTokenSetup();
+        document.getElementById('status-description').textContent = state.connectivity.mode === 'ngrok'
+            ? 'La partita è raggiungibile via Internet.'
+            : 'La partita è raggiungibile direttamente su questa rete.';
         const warning = document.getElementById('warning');
         warning.textContent = state.connectivity.warning || '';
         warning.classList.toggle('hidden', !state.connectivity.warning);
@@ -62,39 +109,42 @@ function render(state) {
     }
 }
 
-document.querySelectorAll('input[name="mode"]').forEach(input => {
-    input.addEventListener('change', () => {
-        const mode = selectedMode();
-        document.querySelectorAll('.mode').forEach(label => {
-            label.classList.toggle('selected', label.contains(document.querySelector('input[name="mode"]:checked')));
-        });
-        ngrokOptions.classList.toggle('hidden', mode !== 'ngrok');
-        directOptions.classList.toggle('hidden', mode !== 'direct');
-        setBusy(false);
-        errorPanel.classList.add('hidden');
+onlineButton.addEventListener('click', () => {
+    if (currentState?.hasSavedNgrokToken) {
+        void startHosting({ mode: 'ngrok' });
+    } else {
+        showTokenSetup();
+    }
+});
+
+lanButton.addEventListener('click', () => startHosting({
+    mode: 'direct',
+    advertisedOrigin: document.getElementById('advertised-origin').value,
+}));
+
+tokenContinue.addEventListener('click', () => {
+    const authToken = document.getElementById('auth-token').value.trim();
+    if (!authToken) {
+        showLocalError('Incolla il token ngrok per continuare.');
+        return;
+    }
+    void startHosting({
+        mode: 'ngrok',
+        authToken,
+        rememberAuthToken: document.getElementById('remember-token').checked,
     });
 });
 
-startButton.addEventListener('click', async () => {
-    setBusy(true);
-    errorPanel.classList.add('hidden');
-    const state = await api.startHosting({
-        mode: selectedMode(),
-        authToken: document.getElementById('auth-token').value,
-        advertisedOrigin: document.getElementById('advertised-origin').value,
-    });
-    document.getElementById('auth-token').value = '';
-    setBusy(false);
-    render(state);
+document.getElementById('token-back').addEventListener('click', hideTokenSetup);
+document.getElementById('change-token').addEventListener('click', () => {
+    document.getElementById('advanced-options').open = false;
+    showTokenSetup();
 });
-
+document.getElementById('forget-token').addEventListener('click', async () => render(await api.forgetNgrokToken()));
 document.getElementById('change-button').addEventListener('click', async () => render(await api.stopHosting()));
 document.getElementById('open-game-button').addEventListener('click', () => api.openGame());
 document.querySelectorAll('[data-external]').forEach(button => {
     button.addEventListener('click', () => api.openExternal(button.dataset.external));
 });
 
-api.getState().then(render).catch(error => {
-    errorPanel.textContent = error.message || String(error);
-    errorPanel.classList.remove('hidden');
-});
+api.getState().then(render).catch(error => showLocalError(error.message || String(error)));
