@@ -9,9 +9,9 @@ const lanButton = document.getElementById('lan-button');
 const tokenContinue = document.getElementById('token-continue');
 let currentState = null;
 
-function setBusy(busy, message = 'Connessione…') {
+function setBusy(busy, message = 'Connecting…') {
     [onlineButton, lanButton, tokenContinue].forEach(button => { button.disabled = busy; });
-    tokenContinue.textContent = busy ? message : 'Salva e continua';
+    tokenContinue.textContent = busy ? message : 'Save and continue';
     document.querySelectorAll('input').forEach(input => {
         input.disabled = busy || (input.id === 'remember-token' && currentState && !currentState.canSaveNgrokToken);
     });
@@ -56,17 +56,17 @@ function renderOrigins(origins) {
         row.className = 'origin-row';
         const content = document.createElement('div');
         const label = document.createElement('small');
-        label.textContent = index === 0 ? 'Indirizzo principale' : 'Indirizzo alternativo';
+        label.textContent = index === 0 ? 'Primary address' : 'Alternative address';
         const code = document.createElement('code');
         code.textContent = origin;
         content.append(label, code);
         const copy = document.createElement('button');
         copy.type = 'button';
-        copy.textContent = 'Copia';
+        copy.textContent = 'Copy';
         copy.addEventListener('click', async () => {
             await api.copyText(origin);
-            copy.textContent = 'Copiato';
-            setTimeout(() => { copy.textContent = 'Copia'; }, 1500);
+            copy.textContent = 'Copied';
+            setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
         });
         row.append(content, copy);
         container.append(row);
@@ -75,20 +75,20 @@ function renderOrigins(origins) {
 
 function render(state) {
     currentState = state;
-    document.getElementById('local-origin').textContent = state.localOrigin || 'avvio…';
+    document.getElementById('local-origin').textContent = state.localOrigin || 'starting…';
     document.getElementById('server-port').textContent = state.port || '—';
     document.getElementById('saved-token-row').classList.toggle('hidden', !state.hasSavedNgrokToken);
     document.getElementById('online-description').textContent = state.hasSavedNgrokToken
-        ? 'Pronto all’uso. L’altro giocatore può usare qualsiasi browser.'
-        : 'Funziona da qualsiasi rete. La prima volta richiede un account gratuito.';
+        ? 'Ready to use. The other player can join from any browser.'
+        : 'Works from any network. The first time requires a free account.';
 
     const remember = document.getElementById('remember-token');
     remember.disabled = !state.canSaveNgrokToken;
     remember.checked = state.canSaveNgrokToken;
     document.getElementById('remember-row').classList.toggle('disabled', !state.canSaveNgrokToken);
     document.getElementById('storage-note').textContent = state.canSaveNgrokToken
-        ? 'Il token sarà cifrato dal sistema operativo e non verrà mai mostrato.'
-        : 'L’archiviazione sicura non è disponibile: il token varrà solo per questa sessione.';
+        ? 'The token is encrypted by the operating system and is never displayed.'
+        : 'Secure storage is unavailable: the token will only last for this session.';
 
     errorPanel.classList.toggle('hidden', state.status !== 'error');
     errorPanel.textContent = state.error || '';
@@ -100,8 +100,8 @@ function render(state) {
     if (ready) {
         hideTokenSetup();
         document.getElementById('status-description').textContent = state.connectivity.mode === 'ngrok'
-            ? 'La partita è raggiungibile via Internet.'
-            : 'La partita è raggiungibile direttamente su questa rete.';
+            ? 'The game is reachable over the Internet.'
+            : 'The game is reachable directly on this network.';
         const warning = document.getElementById('warning');
         warning.textContent = state.connectivity.warning || '';
         warning.classList.toggle('hidden', !state.connectivity.warning);
@@ -125,7 +125,7 @@ lanButton.addEventListener('click', () => startHosting({
 tokenContinue.addEventListener('click', () => {
     const authToken = document.getElementById('auth-token').value.trim();
     if (!authToken) {
-        showLocalError('Incolla il token ngrok per continuare.');
+        showLocalError('Paste your ngrok token to continue.');
         return;
     }
     void startHosting({
