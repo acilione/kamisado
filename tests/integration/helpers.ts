@@ -3,7 +3,7 @@ import type { ServerToClientEvents, ClientToServerEvents } from '../../src/share
 
 export type TestSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
-const SOCKET_URL = 'http://localhost:3000';
+const SOCKET_URL = process.env.TEST_SERVER_URL || 'http://localhost:3000';
 
 export function createClient(): TestSocket {
     return io(SOCKET_URL, {
@@ -15,13 +15,14 @@ export function createClient(): TestSocket {
 export async function createGame(
     client: TestSocket,
     playerId: string,
-    options: { matchType?: string; timer?: string; colorMode?: string } = {}
+    options: { matchType?: string; timer?: string; colorMode?: string; positionMode?: string } = {}
 ): Promise<any> {
     return new Promise((resolve, reject) => {
         client.emit('createGame', {
             matchType: options.matchType || '1',
             timer: options.timer || '0',
             colorMode: options.colorMode || 'black',
+            positionMode: options.positionMode || 'standard',
             playerId
         }, (res: any) => {
             if (res.success) resolve(res);

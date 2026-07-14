@@ -267,7 +267,7 @@ test('M6: Single block — turn passes to opponent', () => {
     game.handleDeadlockCheck();
 
     // Turn should have passed to black
-    assert(game.turn === 'black', `Turn should pass to black, got ${game.turn}`);
+    assert(String(game.turn) === 'black', `Turn should pass to black, got ${game.turn}`);
     assert(game.requiredColor === blockSquareColor,
         `Required color should be ${blockSquareColor} (blocked piece's square), got ${game.requiredColor}`);
 });
@@ -713,7 +713,7 @@ test('T2: After move, opponent must use piece matching landed square color', () 
 
     assert(game.requiredColor === landingColor,
         `After black lands on (1,0), required should be ${landingColor}, got ${game.requiredColor}`);
-    assert(game.turn === 'white', 'Turn should switch to white');
+    assert(String(game.turn) === 'white', 'Turn should switch to white');
 });
 
 // ═══════════════════════════════════════════════
@@ -762,14 +762,14 @@ test('Fill from right reverses the layout order', () => {
 
 test('Fill mode: startNextRound enters waiting_fill_choice (round > 1)', () => {
     const game = createGame({ positionMode: 'fill', matchType: '15' });
-    game.roundState = 'playing';
+    game.roundState = 'waiting_confirmation';
     game.roundWinner = 'black';
     game.defender = 'black';
     game.lastRoundEndPositions = game.board.map(r => r.map(c => c ? { ...c } : null));
 
     game.startNextRound();
 
-    assert(game.roundState === 'waiting_fill_choice',
+    assert(String(game.roundState) === 'waiting_fill_choice',
         `Should be waiting_fill_choice, got ${game.roundState}`);
     assert(game.round === 2, `Round should be 2, got ${game.round}`);
 });
@@ -792,7 +792,7 @@ test('Fill mode: only defender can choose direction', () => {
 
 test('Fill mode: handleFillChoice transitions to playing', () => {
     const game = createGame({ positionMode: 'fill', matchType: '15' });
-    game.roundState = 'playing';
+    game.roundState = 'waiting_confirmation';
     game.roundWinner = 'black';
     game.defender = 'black';
 
@@ -800,16 +800,16 @@ test('Fill mode: handleFillChoice transitions to playing', () => {
     game.lastRoundEndPositions = game.board.map(r => r.map(c => c ? { ...c } : null));
 
     game.startNextRound(); // enters waiting_fill_choice
-    assert(game.roundState === 'waiting_fill_choice');
+    assert(String(game.roundState) === 'waiting_fill_choice');
 
     game.handleFillChoice('black', 'left');
 
-    assert(game.roundState === 'playing', `Should transition to playing, got ${game.roundState}`);
+    assert(String(game.roundState) === 'playing', `Should transition to playing, got ${game.roundState}`);
 });
 
 test('Fill mode: loser moves first after fill', () => {
     const game = createGame({ positionMode: 'fill', matchType: '15' });
-    game.roundState = 'playing';
+    game.roundState = 'waiting_confirmation';
     game.roundWinner = 'black'; // black won → white (loser) moves first
     game.defender = 'black';
     game.lastRoundEndPositions = game.board.map(r => r.map(c => c ? { ...c } : null));
@@ -882,7 +882,7 @@ test('Random mode: roundPositionInfo in toJson', () => {
 
 test('Random mode: new indices drawn each round', () => {
     const game = createGame({ positionMode: 'random', matchType: '15' });
-    game.roundState = 'playing';
+    game.roundState = 'waiting_confirmation';
     const firstInfo = { ...game.roundPositionInfo! };
 
     // Simulate round win
@@ -905,15 +905,15 @@ test('Round increments after startNextRound', () => {
     assert(game.round === 1, 'Should start at round 1');
 
     game.roundWinner = 'black';
-    game.roundState = 'playing';
+    game.roundState = 'waiting_confirmation';
     game.startNextRound();
 
-    assert(game.round === 2, `Should be round 2, got ${game.round}`);
+    assert(Number(game.round) === 2, `Should be round 2, got ${game.round}`);
 });
 
 test('Loser (challenger) moves first in new round', () => {
     const game = createGame();
-    game.roundState = 'playing';
+    game.roundState = 'waiting_confirmation';
     game.roundWinner = 'white'; // white won → black (loser) starts next
 
     game.startNextRound();
@@ -950,7 +950,7 @@ test('confirmNextRound: same player confirming twice does not count double', () 
 
 test('Standard mode: pieces reset to standard layout each round', () => {
     const game = createGame({ positionMode: 'standard', matchType: '15' });
-    game.roundState = 'playing';
+    game.roundState = 'waiting_confirmation';
     game.roundWinner = 'black';
 
     game.startNextRound();
@@ -1014,6 +1014,36 @@ test('White push cannot send black piece off board (near row 0)', () => {
 });
 
 // ═══════════════════════════════════════════════
+test('Move validation rejects out-of-bounds coordinates without throwing', () => {
+    const game = createGame();
+    game.roundState = 'playing';
+
+    const result = game.isValidMove(0, 0, 8, 0, 'black');
+    assert(!result.valid && result.reason.includes('bounds'), 'Expected a bounded validation error');
+});
+
+test('Move validation rejects fractional coordinates without throwing', () => {
+    const game = createGame();
+    game.roundState = 'playing';
+
+    const result = game.isValidMove(0, 0, 1.5, 0, 'black');
+    assert(!result.valid && result.reason.includes('integers'), 'Expected an integer validation error');
+});
+
+test('A finished match cannot start another round', () => {
+    const game = createGame({ matchType: '1' });
+    game.roundState = 'playing';
+    const piece = game.board[0][0]!;
+
+    game.handleRoundWin('black', piece);
+    const roundBefore = game.round;
+    game.startNextRound();
+
+    assert(game.finished, 'Match should be finished');
+    assert(game.round === roundBefore, 'Finished match must not increment the round');
+    assert(game.confirmNextRound('black') === false, 'Finished match must reject confirmations');
+});
+
 // SUMMARY
 // ═══════════════════════════════════════════════
 console.log('\n=== Test Summary ===');

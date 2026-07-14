@@ -82,7 +82,11 @@ export class KamisadoGame {
     if (!this.timerState.enabled || this.roundState !== 'playing') return;
 
     const now = Date.now();
-    const elapsed = now - this.timerState.lastTimestamp!;
+    if (this.timerState.lastTimestamp === null) {
+      return { timeout: false };
+    }
+
+    const elapsed = now - this.timerState.lastTimestamp;
 
     this.timerState.remaining[this.turn] -= elapsed;
     this.timerState.lastTimestamp = now;
@@ -92,6 +96,21 @@ export class KamisadoGame {
       return { timeout: true, player: this.turn };
     }
     return { timeout: false };
+  }
+
+  pauseTimer(): { timeout: boolean; player?: PlayerColor } | undefined {
+    if (!this.timerState.enabled || this.roundState !== 'playing') return;
+    if (this.timerState.lastTimestamp === null) return { timeout: false };
+
+    const result = this.updateTimer();
+    this.timerState.lastTimestamp = null;
+    return result;
+  }
+
+  resumeTimer(): void {
+    if (this.timerState.enabled && this.roundState === 'playing' && !this.finished) {
+      this.timerState.lastTimestamp = Date.now();
+    }
   }
 
   initializeBoard(blackLayout?: readonly PieceColor[], whiteLayout?: readonly PieceColor[]): void {
@@ -149,6 +168,14 @@ export class KamisadoGame {
     if (this.finished) return { valid: false, reason: 'Game finished' };
     if (this.roundState !== 'playing') return { valid: false, reason: 'Round finished' };
     if (player !== this.turn) return { valid: false, reason: 'Not your turn' };
+
+    const coordinates = [fromR, fromC, toR, toC];
+    if (!coordinates.every(Number.isInteger)) {
+      return { valid: false, reason: 'Coordinates must be integers' };
+    }
+    if (coordinates.some(value => value < 0 || value > 7)) {
+      return { valid: false, reason: 'Coordinates out of bounds' };
+    }
 
     const piece = this.getPiece(fromR, fromC);
     if (!piece) return { valid: false, reason: 'No piece at source' };
@@ -296,8 +323,6 @@ export class KamisadoGame {
 
       const blockedSquareColor = BOARD_COLORS[blockedPiece.r][blockedPiece.c];
 
-      console.log(`Player ${this.turn} blocked on color ${this.requiredColor}. Passing turn.`);
-
       this.turn = this.turn === 'black' ? 'white' : 'black';
       this.requiredColor = blockedSquareColor;
 
@@ -358,12 +383,14 @@ export class KamisadoGame {
   }
 
   confirmNextRound(player: PlayerColor): boolean {
-    if (this.roundState !== 'waiting_confirmation') return false;
+    if (this.finished || this.roundState !== 'waiting_confirmation') return false;
     this.confirmations.add(player);
     return this.confirmations.size === 2;
   }
 
   startNextRound(): void {
+    if (this.finished || this.roundState !== 'waiting_confirmation') return;
+
     this.round += 1;
 
     if (this.positionMode === 'fill' && this.round > 1) {
