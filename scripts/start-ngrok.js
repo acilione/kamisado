@@ -1,55 +1,39 @@
 /**
- * Start server with ngrok tunnel for sharing over the internet.
+ * Build first, then start the same embedded server/provider used by Electron.
  *
- * Usage: npm run ngrok
- *
- * Requires ngrok to be installed: https://ngrok.com/download
+ * PowerShell: $env:NGROK_AUTHTOKEN = '<token>'; npm run ngrok
+ * Bash:       NGROK_AUTHTOKEN='<token>' npm run ngrok
  */
 
-const { spawn } = require('child_process');
-const path = require('path');
+const { NgrokConnectivityProvider } = require('../dist/desktop/connectivity/ngrok-provider.js');
+const { setPublicOrigin, startServer } = require('../dist/server/index.js');
 
-const PORT = process.env.PORT || 3000;
+async function main() {
+    const provider = new NgrokConnectivityProvider();
+    const server = await startServer({ host: '127.0.0.1' });
+    const localOrigin = `http://127.0.0.1:${server.port}`;
 
-console.log('Starting Kamisado server with ngrok...\n');
+    try {
+        const details = await provider.start({ port: server.port, localOrigin }, {});
+        setPublicOrigin(details.publicOrigin);
+        console.log(`Kamisado is available at ${details.publicOrigin}`);
+        console.log('Press Ctrl+C to stop.');
 
-const serverProcess = spawn('node', ['dist/server/index.js'], {
-    cwd: path.join(__dirname, '..'),
-    stdio: 'inherit'
-});
+        const shutdown = async () => {
+            await provider.stop().catch(() => undefined);
+            await server.close().catch(() => undefined);
+            process.exit(0);
+        };
+        process.once('SIGINT', shutdown);
+        process.once('SIGTERM', shutdown);
+    } catch (error) {
+        await provider.stop().catch(() => undefined);
+        await server.close().catch(() => undefined);
+        throw error;
+    }
+}
 
-setTimeout(() => {
-    console.log('\nStarting ngrok tunnel...\n');
-
-    const ngrokProcess = spawn('ngrok', ['http', PORT.toString()], {
-        stdio: 'inherit'
-    });
-
-    ngrokProcess.on('error', (err) => {
-        if (err.code === 'ENOENT') {
-            console.error('\n[ERROR] ngrok not found!');
-            console.error('Install it from https://ngrok.com/download');
-            console.error('\nAlternatively, start in separate terminals:');
-            console.error('  Terminal 1: npm start');
-            console.error('  Terminal 2: ngrok http 3000');
-            serverProcess.kill();
-            process.exit(1);
-        }
-        console.error('ngrok error:', err);
-    });
-
-    ngrokProcess.on('close', (code) => {
-        serverProcess.kill();
-        process.exit(code);
-    });
-
-}, 2000);
-
-process.on('SIGINT', () => {
-    serverProcess.kill();
-    process.exit(0);
-});
-
-serverProcess.on('close', (code) => {
-    process.exit(code);
+main().catch(error => {
+    console.error(error.message || error);
+    process.exitCode = 1;
 });

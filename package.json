@@ -1,17 +1,21 @@
 {
   "name": "kamisado",
+  "productName": "Kamisado",
   "version": "1.0.0",
   "description": "Multiplayer Kamisado board game with real-time gameplay, sumo mechanics, and chess-style timers",
-  "main": "dist/server/index.js",
+  "main": "dist/desktop/main.js",
   "scripts": {
     "build": "tsc && node build-client.js",
     "start": "node dist/server/index.js",
     "dev": "tsx watch src/server/index.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
-    "test:unit": "tsx tests/unit/test_game_features.ts && tsx tests/unit/test_sumo.ts && tsx tests/unit/test_rules_comprehensive.ts && tsx tests/unit/test_timer.ts",
+    "test:unit": "tsx tests/unit/test_game_features.ts && tsx tests/unit/test_sumo.ts && tsx tests/unit/test_rules_comprehensive.ts && tsx tests/unit/test_timer.ts && tsx tests/unit/test_connectivity.ts && tsx tests/unit/test_server_lifecycle.ts",
     "test:integration": "npm run build && node scripts/run-integration-tests.js",
     "test": "npm run typecheck && npm run test:unit && npm run test:integration",
-    "ngrok": "node scripts/start-ngrok.js"
+    "ngrok": "node scripts/start-ngrok.js",
+    "desktop:dev": "npm run build && electron-forge start",
+    "desktop:package": "npm run build && electron-forge package",
+    "desktop:make": "npm run build && electron-forge make"
   },
   "keywords": [
     "kamisado",
@@ -21,18 +25,29 @@
     "typescript"
   ],
   "author": "acilione",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/acilione/kamisado.git"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@ngrok/ngrok": "^1.7.0",
     "express": "^4.18.2",
     "socket.io": "^4.7.2"
   },
   "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-deb": "^7.11.2",
+    "@electron-forge/maker-rpm": "^7.11.2",
+    "@electron-forge/maker-squirrel": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
     "@types/express": "^5.0.6",
     "@types/node": "^25.2.3",
-    "esbuild": "^0.27.3",
+    "electron": "41.7.1",
+    "esbuild": "0.28.1",
     "socket.io-client": "^4.7.2",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
