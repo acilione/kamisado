@@ -66,7 +66,7 @@ export interface CreateGameData {
   matchType: string;
   timer: string;
   colorMode: string;
-  positionMode: string;
+  positionMode?: string;
   playerId: string;
 }
 
@@ -92,6 +92,7 @@ export interface JoinGameResponse {
   gameState?: GameState;
   opponentDisconnected?: boolean;
   timeoutSeconds?: number;
+  roundTimerEndTime?: number | null;
 }
 
 export interface SessionCheckResponse {

@@ -227,7 +227,7 @@ test('S3: Normal move switches turn to opponent', () => {
 
     game.makeMove(3, 0, 4, 0, 'black');
 
-    assert(game.turn === 'white', `Turn should switch to white, got: ${game.turn}`);
+    assert(String(game.turn) === 'white', `Turn should switch to white, got: ${game.turn}`);
 });
 
 // ============= NEXT COLOR AFTER PUSH TESTS (S5) =============

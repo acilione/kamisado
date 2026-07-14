@@ -4,6 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Play Kamisado online in real time with a friend—no account required.">
+    <meta name="theme-color" content="#15171c">
     <title>Kamisado Online</title>
     <link rel="stylesheet" href="/style.css">
     <script src="/socket.io/socket.io.js"></script>
@@ -15,6 +17,7 @@
         <!-- Menu Screen -->
         <div id="menu-screen">
             <h1>Kamisado</h1>
+            <p class="tagline">Color decides your next move.</p>
             <div class="menu-group">
                 <h3>Create Game</h3>
                 <div class="form-group">
@@ -55,7 +58,8 @@
 
             <div class="menu-group">
                 <h3>Join Game</h3>
-                <input type="text" id="join-id" placeholder="Enter Game ID">
+                <label for="join-id" class="sr-only">Game ID or invitation link</label>
+                <input type="text" id="join-id" placeholder="Game ID or invitation link" autocomplete="off">
                 <button id="join-btn">Join</button>
             </div>
 
@@ -78,7 +82,7 @@
                     <h4 style="margin:12px 0 6px;">Rounds & Scoring</h4>
                     <ul style="padding-left:20px;margin:0;">
                         <li>A round ends when a tower reaches the opponent's home row.</li>
-                        <li>The winning tower earns points equal to its <strong>sumo rank + 1</strong> (minimum 1).</li>
+                        <li>The winning tower earns <strong>2<sup>rank</sup> points</strong>: 1, 2, 4, or 8.</li>
                         <li>First player to reach the match target score wins.</li>
                     </ul>
 

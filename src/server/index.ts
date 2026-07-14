@@ -1,11 +1,12 @@
 import express from 'express';
 import http from 'http';
+import { randomBytes } from 'crypto';
 import { Server } from 'socket.io';
 import path from 'path';
 
 import { KamisadoGame } from './game.js';
 import type {
-  PlayerColor, GameState,
+  PlayerColor, GameState, PositionMode,
   ServerToClientEvents, ClientToServerEvents,
 } from '../shared/types.js';
 
@@ -14,8 +15,12 @@ const server = http.createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(server);
 
 // Serve static files from public directory
-const publicDir = path.join(process.cwd(), 'public');
+const publicDir = path.resolve(__dirname, '../../public');
 app.use(express.static(publicDir));
+
+app.get('/health', (_req, res) => {
+    res.json({ status: 'ok' });
+});
 
 // Direct game link route - serve the same index.html
 app.get('/game/:gameId', (_req, res) => {
@@ -38,6 +43,7 @@ interface GameSession {
     roundTimer: ReturnType<typeof setTimeout> | null;
     turnTimer?: ReturnType<typeof setTimeout>;
     lobbyTimeout?: ReturnType<typeof setTimeout>;
+    cleanupTimeout?: ReturnType<typeof setTimeout>;
     roundTimerEndTime?: number;
 }
 
@@ -51,6 +57,13 @@ interface PlayerSession {
 
 const games = new Map<string, GameSession>();
 const playerSessions = new Map<string, PlayerSession>();
+const PLAYER_COLORS: readonly PlayerColor[] = ['black', 'white'];
+const VALID_MATCH_TYPES = new Set(['1', '3', '7', '15']);
+const VALID_TIMERS = new Set(['0', '60', '180', '300', '600', '1800']);
+const VALID_COLOR_MODES = new Set(['black', 'white', 'random']);
+const VALID_POSITION_MODES = new Set<PositionMode>(['standard', 'fill', 'random']);
+const DISCONNECT_GRACE_MS = 60_000;
+const FINISHED_GAME_RETENTION_MS = 5 * 60_000;
 
 function hasActiveGame(playerId: string): boolean {
     const s = playerSessions.get(playerId);
@@ -59,27 +72,163 @@ function hasActiveGame(playerId: string): boolean {
     return !!g && !g.gameInstance.finished;
 }
 
+function isValidPlayerId(playerId: unknown): playerId is string {
+    return typeof playerId === 'string' && playerId.length > 0 && playerId.length <= 128;
+}
+
+function getSocketPlayer(session: GameSession, socketId: string): { playerId: string; color: PlayerColor } | null {
+    for (const color of PLAYER_COLORS) {
+        const playerId = session.players[color];
+        if (playerId && session.sockets[playerId] === socketId) {
+            return { playerId, color };
+        }
+    }
+    return null;
+}
+
+function removeSessionsForGame(gameId: string): void {
+    for (const [playerId, session] of playerSessions.entries()) {
+        if (session.gameId === gameId) playerSessions.delete(playerId);
+    }
+}
+
+function clearSessionTimers(session: GameSession): void {
+    if (session.turnTimer) clearTimeout(session.turnTimer);
+    if (session.roundTimer) clearTimeout(session.roundTimer);
+    if (session.lobbyTimeout) clearTimeout(session.lobbyTimeout);
+    session.turnTimer = undefined;
+    session.roundTimer = null;
+    session.lobbyTimeout = undefined;
+    session.roundTimerEndTime = undefined;
+
+    for (const entry of session.disconnects.values()) clearTimeout(entry.timeout);
+    session.disconnects.clear();
+}
+
+function finishSession(
+    gameId: string,
+    session: GameSession,
+    reason: string,
+    winner: PlayerColor | 'DRAW',
+    broadcastState = true,
+): void {
+    if (session.cleanupTimeout) return;
+
+    const game = session.gameInstance;
+    game.finished = true;
+    game.winner = winner;
+    clearSessionTimers(session);
+
+    if (broadcastState) io.to(gameId).emit('gameStateUpdate', game.toJson());
+    io.to(gameId).emit('gameEnded', { reason, winner });
+    removeSessionsForGame(gameId);
+
+    session.cleanupTimeout = setTimeout(() => {
+        games.delete(gameId);
+    }, FINISHED_GAME_RETENTION_MS);
+}
+
+function getOpponentDisconnectInfo(session: GameSession, playerId: string): {
+    opponentDisconnected: boolean;
+    timeoutSeconds: number;
+} {
+    for (const [disconnectedId, entry] of session.disconnects.entries()) {
+        if (disconnectedId !== playerId) {
+            const remainingMs = DISCONNECT_GRACE_MS - (Date.now() - entry.startTime);
+            return {
+                opponentDisconnected: true,
+                timeoutSeconds: Math.max(0, Math.ceil(remainingMs / 1000)),
+            };
+        }
+    }
+    return { opponentDisconnected: false, timeoutSeconds: 0 };
+}
+
+function replaceSocket(gameId: string, session: GameSession, playerId: string, newSocketId: string): void {
+    const oldSocketId = session.sockets[playerId];
+    if (oldSocketId && oldSocketId !== newSocketId) {
+        io.to(oldSocketId).emit('sessionTakenOver');
+        io.sockets.sockets.get(oldSocketId)?.leave(gameId);
+    }
+    session.sockets[playerId] = newSocketId;
+}
+
+function restoreConnectedPlayer(gameId: string, session: GameSession, playerId: string, color: PlayerColor): void {
+    const entry = session.disconnects.get(playerId);
+    if (!entry) return;
+
+    clearTimeout(entry.timeout);
+    session.disconnects.delete(playerId);
+    io.to(gameId).emit('playerReconnected', { color, playerId });
+
+    if (session.disconnects.size === 0) {
+        session.gameInstance.resumeTimer();
+        startTurnTimer(gameId, session);
+        io.to(gameId).emit('gameStateUpdate', session.gameInstance.toJson());
+    }
+}
+
+function beginDisconnectCountdown(gameId: string, session: GameSession, playerId: string): void {
+    if (session.gameInstance.finished || session.disconnects.has(playerId)) return;
+
+    const timerResult = session.gameInstance.pauseTimer();
+    if (session.turnTimer) {
+        clearTimeout(session.turnTimer);
+        session.turnTimer = undefined;
+    }
+    if (timerResult?.timeout && timerResult.player) {
+        handleGameTimeout(gameId, session, timerResult.player);
+        return;
+    }
+
+    io.to(gameId).emit('gameStateUpdate', session.gameInstance.toJson());
+
+    io.to(gameId).emit('playerDisconnected', {
+        playerId,
+        timeoutSeconds: DISCONNECT_GRACE_MS / 1000,
+    });
+
+    const disconnectEntry: DisconnectEntry = {
+        startTime: Date.now(),
+        timeout: setTimeout(() => {
+            if (session.gameInstance.finished || !session.disconnects.has(playerId)) return;
+            const winner: PlayerColor = session.players.black === playerId ? 'white' : 'black';
+            finishSession(gameId, session, 'disconnection_timeout', winner);
+        }, DISCONNECT_GRACE_MS),
+    };
+
+    session.disconnects.set(playerId, disconnectEntry);
+}
+
 // ─── Socket.IO ─────────────────────────────────────────────────────
 
 io.on('connection', (socket) => {
-    console.log('A user connected:', socket.id);
-
     // Check Active Session
-    socket.on('checkActiveSession', ({ playerId }, callback) => {
+    socket.on('checkActiveSession', (data, callback) => {
+        if (typeof callback !== 'function') return;
+        const playerId = data?.playerId;
+        if (!isValidPlayerId(playerId)) return callback({ active: false });
+
         const pSession = playerSessions.get(playerId);
         if (pSession) {
             const gameSession = games.get(pSession.gameId);
             if (gameSession && !gameSession.gameInstance.finished) {
                 const isSpectator = pSession.isSpectator === true;
 
-                const oldSocketId = gameSession.sockets[playerId];
-                if (oldSocketId && oldSocketId !== socket.id) {
-                    io.to(oldSocketId).emit('sessionTakenOver');
-                }
-                gameSession.sockets[playerId] = socket.id;
+                replaceSocket(pSession.gameId, gameSession, playerId, socket.id);
                 socket.join(pSession.gameId);
 
-                gameSession.gameInstance.updateTimer();
+                if (!isSpectator && pSession.color) {
+                    restoreConnectedPlayer(pSession.gameId, gameSession, playerId, pSession.color);
+                }
+
+                if (gameSession.disconnects.size === 0) {
+                    const timerUpdate = gameSession.gameInstance.updateTimer();
+                    if (timerUpdate?.timeout && timerUpdate.player) {
+                        handleGameTimeout(pSession.gameId, gameSession, timerUpdate.player);
+                        return callback({ active: false });
+                    }
+                }
 
                 if (isSpectator) {
                     return callback({
@@ -91,29 +240,7 @@ io.on('connection', (socket) => {
                     });
                 }
 
-                if (gameSession.disconnects.has(playerId)) {
-                    clearTimeout(gameSession.disconnects.get(playerId)!.timeout);
-                    gameSession.disconnects.delete(playerId);
-                    io.to(pSession.gameId).emit('playerReconnected', { color: pSession.color!, playerId });
-                }
-
-                let opponentDisconnected = false;
-                let timeoutSeconds = 0;
-
-                console.log(`[DEBUG] checkActiveSession for ${playerId}. Disconnects map size: ${gameSession.disconnects.size}`);
-                console.log(`[DEBUG] Disconnects keys: ${Array.from(gameSession.disconnects.keys()).join(', ')}`);
-
-                for (const [pid, entry] of gameSession.disconnects.entries()) {
-                    console.log(`[DEBUG] Checking disconnected pid: ${pid} vs requester: ${playerId}`);
-                    if (pid !== playerId) {
-                        opponentDisconnected = true;
-                        const elapsed = Math.floor((Date.now() - entry.startTime) / 1000);
-                        timeoutSeconds = Math.max(0, 60 - elapsed);
-                        console.log(`[DEBUG] Found opponent disconnected! Timeout: ${timeoutSeconds}`);
-                        break;
-                    }
-                }
-                console.log(`[DEBUG] Final opponentDisconnected: ${opponentDisconnected}`);
+                const disconnectInfo = getOpponentDisconnectInfo(gameSession, playerId);
 
                 return callback({
                     active: true,
@@ -121,8 +248,7 @@ io.on('connection', (socket) => {
                     gameId: pSession.gameId,
                     color: pSession.color,
                     gameState: gameSession.gameInstance.toJson(),
-                    opponentDisconnected,
-                    timeoutSeconds,
+                    ...disconnectInfo,
                     roundTimerEndTime: gameSession.roundTimerEndTime || null,
                 });
             } else {
@@ -133,13 +259,28 @@ io.on('connection', (socket) => {
     });
 
     // Create Game
-    socket.on('createGame', ({ matchType, timer, colorMode, positionMode, playerId }, callback) => {
+    socket.on('createGame', (data, callback) => {
+        if (typeof callback !== 'function') return;
+        if (!data || !isValidPlayerId(data.playerId)) {
+            return callback({ success: false, message: 'Invalid player ID' });
+        }
+
+        const { matchType, timer, colorMode, playerId } = data;
+        const positionMode = (data.positionMode || 'standard') as PositionMode;
+        if (!VALID_MATCH_TYPES.has(matchType) || !VALID_TIMERS.has(timer) ||
+            !VALID_COLOR_MODES.has(colorMode) || !VALID_POSITION_MODES.has(positionMode)) {
+            return callback({ success: false, message: 'Invalid game settings' });
+        }
+
         if (hasActiveGame(playerId)) {
             return callback({ success: false, message: 'You already have an active game. Refresh to rejoin.' });
         }
 
-        const gameId = Math.random().toString(36).substring(7);
-        const game = new KamisadoGame(gameId, { matchType, timer, colorMode, positionMode: positionMode as any });
+        let gameId: string;
+        do {
+            gameId = randomBytes(6).toString('hex');
+        } while (games.has(gameId));
+        const game = new KamisadoGame(gameId, { matchType, timer, colorMode, positionMode });
 
         const session: GameSession = {
             gameInstance: game,
@@ -180,12 +321,14 @@ io.on('connection', (socket) => {
     });
 
     // Cancel Game (Manual)
-    socket.on('cancelGame', ({ gameId }, callback) => {
+    socket.on('cancelGame', (data, callback) => {
+        if (typeof callback !== 'function') return;
+        if (!data || typeof data.gameId !== 'string') return callback({ success: false });
+        const { gameId } = data;
         const session = games.get(gameId);
         if (!session) return callback({ success: false });
 
-        const playerId = Object.keys(session.sockets).find(pid => session.sockets[pid] === socket.id);
-        if (!playerId) return callback({ success: false });
+        if (!getSocketPlayer(session, socket.id)) return callback({ success: false });
 
         if (session.gameInstance.roundState !== 'waiting_start') {
             return callback({ success: false, message: 'Cannot cancel active game' });
@@ -206,46 +349,47 @@ io.on('connection', (socket) => {
     });
 
     // Join Game
-    socket.on('joinGame', ({ gameId, playerId }, callback) => {
+    socket.on('joinGame', (data, callback) => {
+        if (typeof callback !== 'function') return;
+        if (!data || typeof data.gameId !== 'string' || !isValidPlayerId(data.playerId)) {
+            return callback({ success: false, message: 'Invalid join request' });
+        }
+        const { gameId, playerId } = data;
         const session = games.get(gameId);
         if (!session) {
             return callback({ success: false, message: 'Game not found' });
         }
+        if (session.gameInstance.finished) {
+            return callback({ success: false, message: 'Game has ended' });
+        }
 
         const existingSession = playerSessions.get(playerId);
         if (existingSession && existingSession.gameId === gameId) {
-            const oldSocketId = session.sockets[playerId];
-            if (oldSocketId && oldSocketId !== socket.id) {
-                io.to(oldSocketId).emit('sessionTakenOver');
-            }
-            session.sockets[playerId] = socket.id;
+            replaceSocket(gameId, session, playerId, socket.id);
             socket.join(gameId);
 
-            session.gameInstance.updateTimer();
-            if (session.disconnects.has(playerId)) {
-                clearTimeout(session.disconnects.get(playerId)!.timeout);
-                session.disconnects.delete(playerId);
-                io.to(gameId).emit('playerReconnected', { color: existingSession.color!, playerId });
+            if (existingSession.color) {
+                restoreConnectedPlayer(gameId, session, playerId, existingSession.color);
             }
 
-            let opponentDisconnected = false;
-            let timeoutSeconds = 0;
-            for (const [pid, entry] of session.disconnects.entries()) {
-                if (pid !== playerId) {
-                    opponentDisconnected = true;
-                    const elapsed = Math.floor((Date.now() - entry.startTime) / 1000);
-                    timeoutSeconds = Math.max(0, 60 - elapsed);
-                    break;
+            if (session.disconnects.size === 0) {
+                const timerUpdate = session.gameInstance.updateTimer();
+                if (timerUpdate?.timeout && timerUpdate.player) {
+                    handleGameTimeout(gameId, session, timerUpdate.player);
+                    return callback({ success: false, message: 'Game has ended' });
                 }
             }
+
+            const disconnectInfo = getOpponentDisconnectInfo(session, playerId);
 
             return callback({
                 success: true,
                 gameId,
                 color: existingSession.color,
                 gameState: session.gameInstance.toJson(),
-                opponentDisconnected,
-                timeoutSeconds,
+                isSpectator: existingSession.isSpectator,
+                ...disconnectInfo,
+                roundTimerEndTime: session.roundTimerEndTime || null,
             });
         }
 
@@ -291,19 +435,41 @@ io.on('connection', (socket) => {
             if (game.roundState === 'waiting_start') {
                 game.startGame();
                 startTurnTimer(gameId, session);
+
+                for (const color of PLAYER_COLORS) {
+                    const id = session.players[color];
+                    if (id && !session.sockets[id]) beginDisconnectCountdown(gameId, session, id);
+                }
             }
             io.to(gameId).emit('gameStateUpdate', game.toJson());
         }
 
-        callback({ success: true, gameId, color: assignedColor, gameState: session.gameInstance.toJson() });
+        callback({
+            success: true,
+            gameId,
+            color: assignedColor,
+            gameState: session.gameInstance.toJson(),
+            ...getOpponentDisconnectInfo(session, playerId),
+        });
     });
 
     // Move
-    socket.on('makeMove', ({ gameId, move }) => {
+    socket.on('makeMove', (data) => {
+        if (!data || typeof data.gameId !== 'string' || !data.move) {
+            socket.emit('error', { message: 'Invalid move request' });
+            return;
+        }
+        const { gameId, move } = data;
         const session = games.get(gameId);
         if (!session) return;
 
         const game = session.gameInstance;
+
+        const player = getSocketPlayer(session, socket.id);
+        if (!player) {
+            socket.emit('error', { message: 'Only active players can make moves' });
+            return;
+        }
 
         const timeUpdate = game.updateTimer();
         if (timeUpdate && timeUpdate.timeout) {
@@ -311,20 +477,17 @@ io.on('connection', (socket) => {
             return;
         }
 
-        const playerId = Object.keys(session.sockets).find(pid => session.sockets[pid] === socket.id);
-        if (!playerId) return;
-
-        const playerColor: PlayerColor = session.players['black'] === playerId ? 'black' : 'white';
-
         try {
-            game.makeMove(move.fromR, move.fromC, move.toR, move.toC, playerColor);
+            game.makeMove(move.fromR, move.fromC, move.toR, move.toC, player.color);
 
             if (session.turnTimer) clearTimeout(session.turnTimer);
 
             const state = game.toJson();
             io.to(gameId).emit('gameStateUpdate', state);
 
-            if (game.roundState === 'playing') {
+            if (game.finished && game.winner) {
+                finishSession(gameId, session, 'match_complete', game.winner, false);
+            } else if (game.roundState === 'playing') {
                 startTurnTimer(gameId, session);
             } else if (state.roundState === 'waiting_confirmation') {
                 if (!session.roundTimer) {
@@ -344,17 +507,10 @@ io.on('connection', (socket) => {
                                 if (game.scores['black'] > game.scores['white']) winner = 'black';
                                 else if (game.scores['white'] > game.scores['black']) winner = 'white';
                                 else winner = 'DRAW';
-                                game.finished = true;
-                                game.winner = winner;
-                                io.to(gameId).emit('gameEnded', { reason: 'round_timeout', winner: game.winner });
-                                playerSessions.forEach((_v, k) => { const v = playerSessions.get(k); if (v && v.gameId === gameId) playerSessions.delete(k); });
-                                session.roundTimer = null;
+                                finishSession(gameId, session, 'round_timeout', winner);
                                 return;
                             }
-                            game.finished = true;
-                            game.winner = winner;
-                            io.to(gameId).emit('gameEnded', { reason: 'surrender_timeout', winner: game.winner });
-                            playerSessions.forEach((_v, k) => { const v = playerSessions.get(k); if (v && v.gameId === gameId) playerSessions.delete(k); });
+                            finishSession(gameId, session, 'surrender_timeout', winner);
                         }
                         session.roundTimer = null;
                     }, 30000);
@@ -367,17 +523,17 @@ io.on('connection', (socket) => {
     });
 
     // Confirm Next Round
-    socket.on('confirmNextRound', ({ gameId }) => {
+    socket.on('confirmNextRound', (data) => {
+        if (!data || typeof data.gameId !== 'string') return;
+        const { gameId } = data;
         const session = games.get(gameId);
         if (!session) return;
 
-        const playerId = Object.keys(session.sockets).find(pid => session.sockets[pid] === socket.id);
-        if (!playerId) return;
-
-        const playerColor: PlayerColor = session.players['black'] === playerId ? 'black' : 'white';
+        const player = getSocketPlayer(session, socket.id);
+        if (!player) return;
         const game = session.gameInstance;
 
-        const allConfirmed = game.confirmNextRound(playerColor);
+        const allConfirmed = game.confirmNextRound(player.color);
         io.to(gameId).emit('gameStateUpdate', game.toJson());
 
         if (allConfirmed) {
@@ -385,6 +541,7 @@ io.on('connection', (socket) => {
                 clearTimeout(session.roundTimer);
                 session.roundTimer = null;
             }
+            session.roundTimerEndTime = undefined;
             game.startNextRound();
             if (game.roundState === 'playing') {
                 startTurnTimer(gameId, session);
@@ -394,18 +551,18 @@ io.on('connection', (socket) => {
     });
 
     // Fill Choice (fill position mode)
-    socket.on('fillChoice', ({ gameId, direction }) => {
+    socket.on('fillChoice', (data) => {
+        if (!data || typeof data.gameId !== 'string') return;
+        const { gameId, direction } = data;
         const session = games.get(gameId);
         if (!session) return;
 
-        const playerId = Object.keys(session.sockets).find(pid => session.sockets[pid] === socket.id);
-        if (!playerId) return;
-
-        const playerColor: PlayerColor = session.players['black'] === playerId ? 'black' : 'white';
+        const player = getSocketPlayer(session, socket.id);
+        if (!player) return;
         const game = session.gameInstance;
 
         try {
-            game.handleFillChoice(playerColor, direction);
+            game.handleFillChoice(player.color, direction);
             startTurnTimer(gameId, session);
             io.to(gameId).emit('gameStateUpdate', game.toJson());
         } catch (e: any) {
@@ -414,47 +571,20 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        console.log('User disconnected:', socket.id);
-
         for (const [gameId, session] of games.entries()) {
             const playerId = Object.keys(session.sockets).find(pid => session.sockets[pid] === socket.id);
             if (playerId) {
-                if (session.gameInstance.finished) return;
+                delete session.sockets[playerId];
+                if (session.gameInstance.finished) break;
+
+                const isPlayer = PLAYER_COLORS.some(color => session.players[color] === playerId);
+                if (!isPlayer) break;
 
                 if (session.gameInstance.roundState === 'waiting_start') {
-                    console.log(`Player ${playerId} disconnected from lobby ${gameId}. Lobby timeout still active.`);
-                    return;
+                    break;
                 }
 
-                console.log(`Player ${playerId} disconnected. Starting countdown.`);
-
-                io.to(gameId).emit('playerDisconnected', {
-                    playerId,
-                    timeoutSeconds: 60,
-                });
-
-                const disconnectEntry: DisconnectEntry = {
-                    startTime: Date.now(),
-                    timeout: setTimeout(() => {
-                        if (session.gameInstance.finished) return;
-                        console.log(`Game ${gameId} timeout for player ${playerId}.`);
-                        session.gameInstance.finished = true;
-
-                        const winner: PlayerColor = session.players['black'] === playerId ? 'white' : 'black';
-                        session.gameInstance.winner = winner;
-
-                        io.to(gameId).emit('gameEnded', { reason: 'disconnection_timeout', winner });
-
-                        for (const entry of session.disconnects.values()) {
-                            clearTimeout(entry.timeout);
-                        }
-                        session.disconnects.clear();
-
-                        playerSessions.forEach((_v, k) => { const v = playerSessions.get(k); if (v && v.gameId === gameId) playerSessions.delete(k); });
-                    }, 60000),
-                };
-
-                session.disconnects.set(playerId, disconnectEntry);
+                beginDisconnectCountdown(gameId, session, playerId);
                 break;
             }
         }
@@ -468,7 +598,8 @@ server.listen(PORT, () => {
 
 function startTurnTimer(gameId: string, session: GameSession): void {
     const game = session.gameInstance;
-    if (!game.timerState.enabled) return;
+    if (!game.timerState.enabled || game.finished || game.roundState !== 'playing' ||
+        game.timerState.lastTimestamp === null || session.disconnects.size > 0) return;
 
     if (session.turnTimer) clearTimeout(session.turnTimer);
 
@@ -483,15 +614,6 @@ function startTurnTimer(gameId: string, session: GameSession): void {
 }
 
 function handleGameTimeout(gameId: string, session: GameSession, loserColor: PlayerColor): void {
-    const game = session.gameInstance;
-    game.finished = true;
-    game.winner = loserColor === 'black' ? 'white' : 'black';
-
-    io.to(gameId).emit('gameEnded', { reason: 'chess_timeout', winner: game.winner });
-    io.to(gameId).emit('gameStateUpdate', game.toJson());
-
-    const pIds = Object.keys(session.players).map(k => session.players[k]);
-    pIds.forEach(pid => {
-        if (pid) playerSessions.delete(pid);
-    });
+    const winner: PlayerColor = loserColor === 'black' ? 'white' : 'black';
+    finishSession(gameId, session, 'chess_timeout', winner);
 }

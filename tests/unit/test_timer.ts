@@ -55,6 +55,29 @@ if (result && result.timeout && result.player === 'black') {
     fail('Timeout detection failed.', result);
 }
 
+// 6. Pause and resume around a disconnect
+const pausedGame = new KamisadoGame('test-paused-timer', { matchType: '3', timer: '60' });
+pausedGame.startGame();
+pausedGame.timerState.lastTimestamp! -= 2000;
+pausedGame.pauseTimer();
+const pausedRemaining = pausedGame.timerState.remaining.black;
+pausedGame.updateTimer();
+
+if (pausedGame.timerState.lastTimestamp === null && pausedGame.timerState.remaining.black === pausedRemaining) {
+    pass('Paused clock does not continue while a player is disconnected.');
+} else {
+    fail('Paused clock changed unexpectedly.', pausedGame.timerState);
+}
+
+pausedGame.resumeTimer();
+pausedGame.timerState.lastTimestamp! -= 1000;
+pausedGame.updateTimer();
+if (pausedGame.timerState.remaining.black < pausedRemaining - 900) {
+    pass('Clock resumes after reconnection.');
+} else {
+    fail('Clock did not resume after reconnection.', pausedGame.timerState);
+}
+
 console.log('\n=== Test Summary ===');
 console.log(`Passed: ${passed}`);
 console.log(`Failed: ${failed}`);

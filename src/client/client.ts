@@ -34,7 +34,7 @@ function getGameIdFromUrl(): string | null {
 socket.on('connect', () => {
     socket.emit('checkActiveSession', { playerId }, (response) => {
         if (response.active) {
-            handleJoinResponse(response as any);
+            handleJoinResponse(response);
         } else {
             const urlGameId = getGameIdFromUrl();
             if (urlGameId) {
@@ -56,9 +56,12 @@ document.getElementById('create-btn')!.addEventListener('click', () => {
 });
 
 document.getElementById('join-btn')!.addEventListener('click', () => {
-    const id = (document.getElementById('join-id') as HTMLInputElement).value;
+    const rawValue = (document.getElementById('join-id') as HTMLInputElement).value.trim();
+    const id = rawValue.match(/(?:\/game\/)?([a-f0-9]{12})\/?$/i)?.[1];
     if (id) {
         socket.emit('joinGame', { gameId: id, playerId }, handleJoinResponse);
+    } else {
+        alert('Enter a valid game ID or invitation link.');
     }
 });
 
@@ -79,7 +82,7 @@ function getPlayerId(): string {
 }
 
 interface JoinResponse {
-    success: boolean;
+    success?: boolean;
     message?: string;
     gameId?: string;
     color?: PlayerColor;
@@ -139,7 +142,6 @@ function handleJoinResponse(response: JoinResponse): void {
         }
 
         if (!isSpectator && response.opponentDisconnected && response.timeoutSeconds && response.timeoutSeconds > 0) {
-            console.log('[CLIENT DEBUG] opponentDisconnected detected, calling handleOpponentDisconnect with', response.timeoutSeconds);
             handleOpponentDisconnect(response.timeoutSeconds);
         }
 
@@ -191,20 +193,19 @@ function handleOpponentDisconnect(timeoutSeconds: number): void {
 
 socket.on('playerDisconnected', ({ timeoutSeconds, playerId: disconnectedPid }) => {
     if (disconnectedPid === playerId) return;
+    if (isSpectator) {
+        messageEl.textContent = `A player disconnected. Waiting ${timeoutSeconds}s for reconnection...`;
+        messageEl.style.color = 'orange';
+        return;
+    }
     handleOpponentDisconnect(timeoutSeconds);
 });
 
 socket.on('playerReconnected', (data) => {
-    console.log('[CLIENT DEBUG] playerReconnected event received:', data);
-    console.log('[CLIENT DEBUG] My playerId:', playerId);
-    if (data && data.playerId === playerId) {
-        console.log('[CLIENT DEBUG] Ignoring own reconnection event');
-        return;
-    }
+    if (data && data.playerId === playerId) return;
 
-    console.log('[CLIENT DEBUG] Opponent reconnected, clearing countdown');
     if (disconnectInterval) clearInterval(disconnectInterval);
-    messageEl.textContent = `Opponent reconnected! Resuming.`;
+    messageEl.textContent = isSpectator ? 'Player reconnected. Game resumed.' : 'Opponent reconnected! Resuming.';
     messageEl.style.color = 'white';
 });
 
@@ -224,6 +225,9 @@ socket.on('gameEnded', ({ reason, winner }) => {
     }
     if (reason === 'chess_timeout') {
         alert(`Game Over! Winner: ${winner}. Reason: Time Limit Exceeded.`);
+    }
+    if (reason === 'match_complete') {
+        messageEl.textContent = `Match complete. Winner: ${winner}`;
     }
     if (disconnectInterval) clearInterval(disconnectInterval);
     if (chessClockInterval) { clearInterval(chessClockInterval); chessClockInterval = null; }
@@ -365,7 +369,6 @@ function handleCellClick(r: number, c: number): void {
 
 function updateUI(): void {
     if (!gameState) return;
-    console.log('updateUI called', gameState.roundState, gameState.turn);
 
     turnIndicatorEl.innerHTML = '';
 
@@ -375,7 +378,9 @@ function updateUI(): void {
     }
 
     if (gameState.finished) {
-        statusText = `MATCH OVER: ${String(gameState.winner).toUpperCase()} WINS!`;
+        statusText = gameState.winner === 'DRAW'
+            ? 'MATCH OVER: DRAW'
+            : `MATCH OVER: ${String(gameState.winner).toUpperCase()} WINS!`;
 
         turnIndicatorEl.appendChild(document.createTextNode(statusText));
 
@@ -396,7 +401,6 @@ function updateUI(): void {
         timerEndTime = null;
 
     } else if (gameState.roundState === 'waiting_start') {
-        console.log('Rendering waiting_start UI');
         statusText = "Waiting for opponent to join...";
         turnIndicatorEl.appendChild(document.createTextNode(statusText));
 
@@ -424,8 +428,12 @@ function updateUI(): void {
 
         turnIndicatorEl.appendChild(document.createTextNode(statusText));
 
-        const hasConfirmed = gameState.confirmations.includes(playerColor!);
-        if (!hasConfirmed) {
+        const hasConfirmed = playerColor ? gameState.confirmations.includes(playerColor) : false;
+        if (isSpectator) {
+            const wait = document.createElement('div');
+            wait.textContent = 'Waiting for both players to continue...';
+            turnIndicatorEl.appendChild(wait);
+        } else if (!hasConfirmed) {
             const btn = document.createElement('button');
             btn.id = 'next-round-btn';
             btn.textContent = 'Ready for Next Round...';
@@ -572,7 +580,7 @@ function updateClocks(): void {
         let bTime = gameState.timer.remaining.black;
         let wTime = gameState.timer.remaining.white;
 
-        if (gameState.roundState === 'playing') {
+        if (gameState.roundState === 'playing' && gameState.timer.lastTimestamp !== null) {
             const elapsed = Date.now() - gs._localReceiveTime;
             if (gameState.turn === 'black') bTime -= elapsed;
             else wTime -= elapsed;

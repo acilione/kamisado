@@ -1,148 +1,149 @@
 # Kamisado
 
-A full-featured multiplayer [Kamisado](https://en.wikipedia.org/wiki/Kamisado) board game built with TypeScript, Node.js, Express, and Socket.IO. Play in real time with a friend through shareable game links -- no accounts required.
+A real-time, browser-based implementation of [Kamisado](https://en.wikipedia.org/wiki/Kamisado), built with TypeScript, Express, and Socket.IO. Create a match, share its invitation link, and play without accounts or a client installation.
 
-## Quick Start
+## Highlights
+
+- Server-authoritative movement, scoring, deadlock, and sumo-push rules
+- Real-time two-player matches with shareable links
+- Spectator mode for additional visitors
+- Session takeover protection and a 60-second reconnection window
+- Chess-style match clocks with 1, 3, 5, 10, and 30-minute presets
+- Standard, fill, and 37-layout random position modes
+- Responsive board and controls for desktop and mobile browsers
+- Automated rule, timer, multiplayer, reconnection, and adversarial socket tests
+
+## Quick start
+
+Prerequisites: Node.js 20 or newer and npm.
 
 ```bash
-# Install dependencies
-npm install
-
-# Build and run
+git clone https://github.com/acilione/kamisado.git
+cd kamisado
+npm ci
 npm run build
 npm start
 ```
 
-The server starts at `http://localhost:3000`. Open it in two browser tabs to play locally.
+Open `http://localhost:3000`. Create a game, then open its invitation link in a second browser or private window.
 
-### Play with someone on another computer
-
-To share the game over the internet, use [ngrok](https://ngrok.com/download):
-
-```bash
-# One command -- starts the server and opens an ngrok tunnel
-npm run ngrok
-```
-
-ngrok will display a public URL (e.g. `https://abc123.ngrok-free.app`). Send that link to your friend -- they open it in their browser and join your game.
-
-If you prefer to run them separately:
-
-```bash
-# Terminal 1: start the server
-npm start
-
-# Terminal 2: expose it with ngrok
-ngrok http 3000
-```
-
-> **Note:** ngrok must be [installed](https://ngrok.com/download) and authenticated (`ngrok config add-authtoken <token>`) before use. The free tier works fine for playing.
-
-### Development
-
-For development with auto-reload:
+For server-side development with automatic reload:
 
 ```bash
 npm run dev
 ```
 
-## How to Play
+The browser client is a generated bundle. Run `npm run build` after changing `src/client/client.ts`.
 
-Kamisado is an abstract strategy game played on an 8x8 color-coded board. Each player controls 8 towers of different colors.
+## Playing over the internet
 
-**Goal:** Move one of your towers to the opponent's home row.
+The included helper can start the built server and expose it through [ngrok](https://ngrok.com/download):
 
-**Movement:**
-- Towers move **forward only** -- straight or diagonally
-- Towers cannot jump over other pieces
-- After each move, the opponent **must** move the tower matching the color of the square you landed on
-- If that tower is blocked, the turn passes back. If both players are blocked (deadlock), the last player who moved wins the round
-
-**Sumo Ranks:**
-
-Towers that win a round are promoted (up to rank 3). Higher ranks gain pushing power but lose movement range:
-
-| Rank | Title | Max Range | Push Capacity |
-|------|-------|-----------|---------------|
-| 0 | Normal | Unlimited | None |
-| 1 | Sumo | 5 squares | 1 piece |
-| 2 | Double Sumo | 3 squares | 2 pieces |
-| 3 | Triple Sumo | 1 square | 3 pieces |
-
-Pushes are straight forward only, against adjacent opponent pieces of lower rank. After a push, you get another turn.
-
-**Scoring:** The winning tower scores `2^rank` points (1, 2, 4, or 8). First to the target score wins the match.
-
-## Features
-
-- **Real-time multiplayer** via Socket.IO with shareable game links
-- **Sumo push mechanics** with rank-based movement limits and chain pushes
-- **Multiple match lengths:** Single Round (1 pt), Standard (3 pts), Long (7 pts), Marathon (15 pts)
-- **Chess-style timers:** 1, 3, 5, 10, or 30 minute time controls
-- **Three position modes:**
-  - *Standard* -- default starting positions each round
-  - *Fill* -- round winner rearranges pieces by choosing left/right fill direction
-  - *Random* -- randomly drawn layout from 37 predefined setups each round
-- **Reconnection support** -- refresh the page or lose connection and rejoin seamlessly within 60 seconds
-- **Spectator mode** -- third players can watch live games
-- **Session takeover detection** -- opening the game in a second tab transfers the session
-- **Mobile responsive** -- works on phones and tablets
-- **Deadlock detection** with automatic turn passing and resolution
-
-## Project Structure
-
+```bash
+npm run build
+npm run ngrok
 ```
+
+ngrok must already be installed and authenticated:
+
+```bash
+ngrok config add-authtoken <token>
+```
+
+Send the displayed HTTPS URL to the other player. Direct `/game/<id>` links are handled by the same web client.
+
+## Rules implemented
+
+Kamisado is played on an 8x8 colored board. Each player has eight towers, one for each board color. Black moves first.
+
+- A tower moves any unobstructed distance forward, either straight or diagonally.
+- Towers cannot move sideways or backward and cannot jump over another tower.
+- The color of the destination square determines which tower the opponent must move.
+- If that tower cannot move, the turn passes back using the blocked tower's square color.
+- If the newly required tower is also blocked, the last mover wins the round.
+- Reaching the opponent's home row wins the round.
+
+### Sumo ranks and scoring
+
+A tower that wins a round is promoted, up to rank 3. Its score for a later win is `2^rank`.
+
+| Rank | Tower | Maximum move | Push capacity | Points |
+| ---: | --- | ---: | ---: | ---: |
+| 0 | Normal | Unlimited | None | 1 |
+| 1 | Sumo | 5 squares | 1 lower-ranked tower | 2 |
+| 2 | Double Sumo | 3 squares | 2 lower-ranked towers | 4 |
+| 3 | Triple Sumo | 1 square | 3 lower-ranked towers | 8 |
+
+Pushes are straight forward, begin against an adjacent opposing tower, and cannot push an equal/higher-ranked tower, a tower on its home row, or a chain off the board. A successful push grants another turn; the furthest pushed tower's landing-square color becomes the next required color.
+
+The available match targets are 1, 3, 7, and 15 points.
+
+### Position modes
+
+- **Standard:** each round resets to the standard layout.
+- **Fill:** after round one, the previous winner chooses the fill direction for the next layout.
+- **Random:** each side receives a different layout drawn from 37 predefined arrangements.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm run build` | Type-check the application and bundle the browser client |
+| `npm start` | Run the compiled server on `PORT` (default `3000`) |
+| `npm run dev` | Run the TypeScript server in watch mode |
+| `npm run typecheck` | Type-check application and test sources |
+| `npm run test:unit` | Run the game-rule and timer suites |
+| `npm run test:integration` | Build, start an isolated server, and run all Socket.IO suites |
+| `npm test` | Run type checks, unit tests, and integration tests |
+| `npm run ngrok` | Start the compiled server and an ngrok tunnel |
+
+`TEST_PORT` can override the integration runner's temporary port. Tests can also target an already running instance by executing an individual integration file with `TEST_SERVER_URL` set.
+
+## Architecture
+
+```text
 src/
   shared/
-    types.ts          # Shared type definitions (Piece, Board, GameState, Socket.IO events)
-    constants.ts      # Board color matrix, piece layouts (37 position presets)
+    constants.ts       Board colors and position layouts
+    types.ts           Game state and typed Socket.IO event contracts
   server/
-    game.ts           # KamisadoGame class -- all game logic, move validation, sumo mechanics
-    index.ts          # Express + Socket.IO server, session management, reconnection
+    game.ts            Rules engine and match state
+    index.ts           HTTP server, sessions, timers, and socket authorization
   client/
-    client.ts         # Browser client -- UI rendering, board interaction, timer display
-    globals.d.ts      # Type declarations for Socket.IO CDN global
+    client.ts          Rendering, input, clocks, and reconnect UI
 public/
-  index.html          # Game page
-  style.css           # Styling with mobile responsive design
+  index.html            Browser shell and rules tutorial
+  style.css             Responsive presentation
 tests/
-  unit/               # 113 unit tests (game logic, sumo rules, scoring, timer)
-  integration/        # 47 integration tests (multiplayer flows, reconnection, spectator)
+  unit/                 Rule, scoring, sumo, round, and timer coverage
+  integration/          Live multiplayer and WebSocket lifecycle coverage
+scripts/
+  run-integration-tests.js
+  start-ngrok.js
 ```
 
-## Configuration
+The server owns the canonical board and validates every action. Clients receive serialized game-state updates and never decide whether a move is legal. Socket actions are accepted only from the currently bound player connection; spectators and replaced browser tabs cannot mutate a match.
 
-The server port defaults to `3000` and can be changed via the `PORT` environment variable:
+## Deployment notes
+
+This project currently stores games and session mappings in process memory. That keeps local setup simple, but it has important production implications:
+
+- restarting the process ends all active games;
+- multiple server replicas need shared state and Socket.IO coordination;
+- invitation/player IDs are bearer-style tokens, not authenticated accounts;
+- reverse proxies must allow WebSocket upgrades and should keep clients on a compatible Socket.IO deployment.
+
+For a public production service, add durable/shared storage, authenticated identities, rate limiting, origin policy, structured logging, and a multi-node Socket.IO adapter before scaling beyond one trusted instance.
+
+## Testing
+
+The test suite covers the rules engine as well as real Socket.IO clients. Integration coverage includes game creation and joining, move broadcasts, direct links, cancellation, session restoration, dual-tab takeover, reconnect countdowns, timer persistence, spectators, malformed messages, stale sockets, and lobby disconnect races.
 
 ```bash
-PORT=8080 npm start
+npm test
 ```
 
-## Tests
-
-**Unit tests** test game logic directly and require no running server:
-
-```bash
-npm run test:unit
-```
-
-**Integration tests** test multiplayer scenarios via Socket.IO and require the server to be running:
-
-```bash
-# In one terminal:
-npm start
-
-# In another terminal:
-npm run test:integration
-```
-
-## Tech Stack
-
-- **Runtime:** Node.js
-- **Language:** TypeScript (strict mode)
-- **Server:** Express + Socket.IO
-- **Client:** Vanilla TypeScript bundled with esbuild
-- **Tests:** Custom lightweight test framework (no external test dependencies)
+GitHub Actions runs the same command on Node.js 20 and 22.
 
 ## License
 
