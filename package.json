@@ -9,7 +9,7 @@
     "start": "node dist/server/index.js",
     "dev": "tsx watch src/server/index.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
-    "test:unit": "tsx tests/unit/test_game_features.ts && tsx tests/unit/test_sumo.ts && tsx tests/unit/test_rules_comprehensive.ts && tsx tests/unit/test_timer.ts && tsx tests/unit/test_connectivity.ts && tsx tests/unit/test_server_lifecycle.ts",
+    "test:unit": "tsx tests/unit/test_game_features.ts && tsx tests/unit/test_sumo.ts && tsx tests/unit/test_rules_comprehensive.ts && tsx tests/unit/test_timer.ts && tsx tests/unit/test_connectivity.ts && tsx tests/unit/test_token_vault.ts && tsx tests/unit/test_server_lifecycle.ts",
     "test:integration": "npm run build && node scripts/run-integration-tests.js",
     "test": "npm run typecheck && npm run test:unit && npm run test:integration",
     "ngrok": "node scripts/start-ngrok.js",

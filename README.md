@@ -56,7 +56,7 @@ Artifacts are written to `out/make`. Windows builds include an installer and a p
 
 The host window offers two interchangeable connectivity providers:
 
-- **ngrok:** enter an authtoken for the current session. The integrated SDK creates an HTTPS endpoint, so the guest only needs the invitation link and a browser. The token is kept in memory and is not saved.
+- **Internet (ngrok):** the first launch guides the host through entering an authtoken; afterward hosting is one click. When secure OS storage is available, the token is encrypted with Electron `safeStorage` (DPAPI on Windows, Keychain on macOS, supported secret stores on Linux). It is never exposed to the renderer. Linux's unprotected `basic_text` fallback is detected and rejected, in which case the token remains session-only.
 - **Direct P2P:** the guest connects straight to the host's Socket.IO server. LAN addresses are detected automatically. Internet use requires TCP port forwarding; enter the public host and port in the optional public-address field. CGNAT or restrictive routers may prevent this mode from working, in which case use ngrok.
 
 In both modes, the host remains authoritative and all moves are validated by the same `KamisadoGame` implementation. “Direct P2P” describes the network path—there is no relay or cloud server—not a decentralized game-state model.
