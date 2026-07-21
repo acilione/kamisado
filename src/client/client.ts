@@ -108,7 +108,8 @@ function handleJoinResponse(response: JoinResponse): void {
         updateUI();
 
         // Build shareable URL
-        const shareUrl = `${window.location.origin}/game/${gameId}`;
+        const shareOrigin = window.__KAMISADO_RUNTIME_CONFIG__?.publicOrigin || window.location.origin;
+        const shareUrl = `${shareOrigin}/game/${gameId}`;
 
         if (isSpectator) {
             messageEl.innerHTML = `<strong>👁 Spectating</strong> - Watch only mode`;
