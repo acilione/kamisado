@@ -2,6 +2,7 @@
   "name": "kamisado",
   "productName": "Kamisado",
   "version": "1.0.0",
+  "private": true,
   "description": "Multiplayer Kamisado board game with real-time gameplay, sumo mechanics, and chess-style timers",
   "main": "dist/desktop/main.js",
   "scripts": {
@@ -28,6 +29,10 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/acilione/kamisado.git"
+  },
+  "homepage": "https://github.com/acilione/kamisado#readme",
+  "bugs": {
+    "url": "https://github.com/acilione/kamisado/issues"
   },
   "license": "MIT",
   "engines": {
