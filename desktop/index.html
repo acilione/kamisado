@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+    <title>Kamisado</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="renderer.js" defer></script>
+</head>
+<body>
+    <main>
+        <header>
+            <p class="eyebrow">Kamisado</p>
+            <h1>Create a game</h1>
+            <p class="intro">Choose where the other player is. We will handle the rest.</p>
+        </header>
+
+        <section id="setup-panel">
+            <div class="quick-actions">
+                <button id="online-button" class="choice primary-choice" type="button">
+                    <span class="choice-icon">◎</span>
+                    <span class="choice-copy">
+                        <span class="choice-title">Play online <em>Recommended</em></span>
+                        <small id="online-description">Works from any network. The other player joins from a browser.</small>
+                    </span>
+                    <span class="arrow">→</span>
+                </button>
+
+                <button id="lan-button" class="choice" type="button">
+                    <span class="choice-icon">⌂</span>
+                    <span class="choice-copy">
+                        <span class="choice-title">Same Wi-Fi network</span>
+                        <small>No account needed. Ideal when you are in the same place.</small>
+                    </span>
+                    <span class="arrow">→</span>
+                </button>
+            </div>
+
+            <div id="token-setup" class="token-card hidden">
+                <button id="token-back" class="back" type="button">← Back</button>
+                <p class="step-label">First-time setup</p>
+                <h2>Connect ngrok for free</h2>
+                <p>This is only needed once to create a secure Internet link.</p>
+                <ol>
+                    <li><button type="button" class="link" data-external="https://dashboard.ngrok.com/get-started/your-authtoken">Open ngrok and copy your authtoken</button></li>
+                    <li>Paste it below.</li>
+                </ol>
+                <label for="auth-token" class="sr-only">ngrok authtoken</label>
+                <input id="auth-token" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your token here">
+                <label id="remember-row" class="checkbox-row">
+                    <input id="remember-token" type="checkbox" checked>
+                    <span>Remember it securely on this computer</span>
+                </label>
+                <p id="storage-note" class="fine-print"></p>
+                <button id="token-continue" class="primary" type="button">Save and continue</button>
+            </div>
+
+            <details id="advanced-options">
+                <summary>Advanced options</summary>
+                <div class="advanced-content">
+                    <label for="advertised-origin">Public address for direct connections <span>(optional)</span></label>
+                    <input id="advertised-origin" type="text" autocomplete="off" spellcheck="false" placeholder="http://your-address:port">
+                    <p>Only needed with port forwarding. The local port is <strong id="server-port">—</strong>.</p>
+                    <div id="saved-token-row" class="saved-setting hidden">
+                        <span>Online credentials configured</span>
+                        <button id="change-token" type="button">Change</button>
+                        <button id="forget-token" type="button">Forget</button>
+                    </div>
+                    <div class="local-address"><span>Local server</span><code id="local-origin">starting…</code></div>
+                </div>
+            </details>
+        </section>
+
+        <section id="status-panel" class="hidden" aria-live="polite">
+            <div class="status-heading">
+                <span id="status-dot"></span>
+                <div>
+                    <h2>All set</h2>
+                    <p id="status-description">The game window is open.</p>
+                </div>
+            </div>
+            <div class="next-step">
+                <strong>Create the game now</strong>
+                <span>Choose the rules, press “Create Game,” and copy the invitation link.</span>
+            </div>
+            <div id="warning" class="warning hidden"></div>
+            <details class="connection-details">
+                <summary>Connection details</summary>
+                <div id="origins"></div>
+            </details>
+            <div class="actions">
+                <button id="open-game-button" class="primary" type="button">Open game</button>
+                <button id="change-button" type="button">Stop</button>
+            </div>
+        </section>
+
+        <section id="error-panel" class="error hidden" aria-live="assertive"></section>
+    </main>
+</body>
+</html>

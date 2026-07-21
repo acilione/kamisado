@@ -1,6 +1,10 @@
 # Kamisado
 
-A real-time, browser-based implementation of [Kamisado](https://en.wikipedia.org/wiki/Kamisado), built with TypeScript, Express, and Socket.IO. Create a match, share its invitation link, and play without accounts or a client installation.
+[![CI](https://github.com/acilione/kamisado/actions/workflows/ci.yml/badge.svg)](https://github.com/acilione/kamisado/actions/workflows/ci.yml)
+[![Node.js 20+](https://img.shields.io/badge/Node.js-20%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+A real-time implementation of [Kamisado](https://en.wikipedia.org/wiki/Kamisado), built with TypeScript, Express, Socket.IO, and Electron. Play in a browser or use the self-contained desktop host to create a room, share its invitation link, and play without accounts.
 
 ## Highlights
 
@@ -11,6 +15,7 @@ A real-time, browser-based implementation of [Kamisado](https://en.wikipedia.org
 - Chess-style match clocks with 1, 3, 5, 10, and 30-minute presets
 - Standard, fill, and 37-layout random position modes
 - Responsive board and controls for desktop and mobile browsers
+- Self-contained desktop host for direct/LAN and ngrok rooms
 - Automated rule, timer, multiplayer, reconnection, and adversarial socket tests
 
 ## Quick start
@@ -35,22 +40,50 @@ npm run dev
 
 The browser client is a generated bundle. Run `npm run build` after changing `src/client/client.ts`.
 
+## Desktop application
+
+The Electron host packages the existing TypeScript server and browser client without rewriting the game engine. End users do not need Node.js, npm, ngrok, or any other runtime.
+
+Start it during development:
+
+```bash
+npm run desktop:dev
+```
+
+Create a distributable for the current operating system:
+
+```bash
+npm run desktop:make
+```
+
+Artifacts are written to `out/make`. Windows builds include an installer and a portable ZIP; Linux builds produce DEB/RPM packages; macOS builds produce a ZIP application bundle. Production releases should be code-signed on each target platform.
+
+The ZIP builds are portable: extract the archive and launch Kamisado directly, without running an installer. Packaged builds include the application runtime and server dependencies, so players do not need to install Node.js, npm, or a separate ngrok executable.
+
+The host window offers two interchangeable connectivity providers:
+
+- **Internet (ngrok):** the first launch guides the host through entering an authtoken; afterward hosting is one click. When secure OS storage is available, the token is encrypted with Electron `safeStorage` (DPAPI on Windows, Keychain on macOS, supported secret stores on Linux). It is never exposed to the renderer. Linux's unprotected `basic_text` fallback is detected and rejected, in which case the token remains session-only.
+- **Direct P2P:** the guest connects straight to the host's Socket.IO server. LAN addresses are detected automatically. Internet use requires TCP port forwarding; enter the public host and port in the optional public-address field. CGNAT or restrictive routers may prevent this mode from working, in which case use ngrok.
+
+In both modes, the host remains authoritative and all moves are validated by the same `KamisadoGame` implementation. "Direct P2P" describes the network path - there is no relay or cloud server - not a decentralized game-state model.
+
 ## Playing over the internet
 
-The included helper can start the built server and expose it through [ngrok](https://ngrok.com/download):
+The included helper uses the same embedded [ngrok JavaScript SDK](https://ngrok.com/docs/getting-started/javascript) as the desktop application:
 
 ```bash
 npm run build
+NGROK_AUTHTOKEN=<token> npm run ngrok
+```
+
+In PowerShell:
+
+```powershell
+$env:NGROK_AUTHTOKEN = '<token>'
 npm run ngrok
 ```
 
-ngrok must already be installed and authenticated:
-
-```bash
-ngrok config add-authtoken <token>
-```
-
-Send the displayed HTTPS URL to the other player. Direct `/game/<id>` links are handled by the same web client.
+No separate ngrok executable is required. Send the displayed HTTPS URL to the other player. Direct `/game/<id>` links are handled by the same web client.
 
 ## Rules implemented
 
@@ -95,7 +128,10 @@ The available match targets are 1, 3, 7, and 15 points.
 | `npm run test:unit` | Run the game-rule and timer suites |
 | `npm run test:integration` | Build, start an isolated server, and run all Socket.IO suites |
 | `npm test` | Run type checks, unit tests, and integration tests |
-| `npm run ngrok` | Start the compiled server and an ngrok tunnel |
+| `npm run ngrok` | Start the compiled server and embedded ngrok provider |
+| `npm run desktop:dev` | Build and launch the Electron host |
+| `npm run desktop:package` | Create an unpacked desktop application |
+| `npm run desktop:make` | Create platform-specific distributables |
 
 `TEST_PORT` can override the integration runner's temporary port. Tests can also target an already running instance by executing an individual integration file with `TEST_SERVER_URL` set.
 
@@ -109,8 +145,16 @@ src/
   server/
     game.ts            Rules engine and match state
     index.ts           HTTP server, sessions, timers, and socket authorization
+  desktop/
+    main.ts            Electron lifecycle, windows, and host orchestration
+    preload.ts         Narrow IPC bridge for the isolated host UI
+    connectivity/      Direct and ngrok providers behind one interface
   client/
     client.ts          Rendering, input, clocks, and reconnect UI
+desktop/
+  index.html            Connectivity-provider host window
+  renderer.js           Unprivileged host-window interaction
+  style.css             Desktop host presentation
 public/
   index.html            Browser shell and rules tutorial
   style.css             Responsive presentation
@@ -122,7 +166,7 @@ scripts/
   start-ngrok.js
 ```
 
-The server owns the canonical board and validates every action. Clients receive serialized game-state updates and never decide whether a move is legal. Socket actions are accepted only from the currently bound player connection; spectators and replaced browser tabs cannot mutate a match.
+The server owns the canonical board and validates every action. Clients receive serialized game-state updates and never decide whether a move is legal. Socket actions are accepted only from the currently bound player connection; spectators and replaced browser tabs cannot mutate a match. The desktop connectivity manager starts exactly one provider at a time and closes the previous tunnel before switching, while the underlying room and Socket.IO protocol remain unchanged.
 
 ## Deployment notes
 
@@ -142,8 +186,6 @@ The test suite covers the rules engine as well as real Socket.IO clients. Integr
 ```bash
 npm test
 ```
-
-GitHub Actions runs the same command on Node.js 20 and 22.
 
 ## License
 

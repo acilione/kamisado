@@ -3,6 +3,7 @@ import http from 'http';
 import { randomBytes } from 'crypto';
 import { Server } from 'socket.io';
 import path from 'path';
+import type { AddressInfo } from 'net';
 
 import { KamisadoGame } from './game.js';
 import type {
@@ -13,6 +14,37 @@ import type {
 const app = express();
 const server = http.createServer(app);
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(server);
+
+let publicOrigin: string | null = null;
+
+export interface ServerStartOptions {
+    port?: number;
+    host?: string;
+}
+
+export interface RunningServer {
+    port: number;
+    close(): Promise<void>;
+}
+
+export function setPublicOrigin(origin: string | null): void {
+    if (origin === null) {
+        publicOrigin = null;
+        return;
+    }
+
+    const parsed = new URL(origin);
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+        throw new Error('Public origin must be an HTTP(S) URL without credentials');
+    }
+    publicOrigin = parsed.origin;
+}
+
+app.get('/runtime-config.js', (_req, res) => {
+    const config = JSON.stringify({ publicOrigin }).replace(/</g, '\\u003c');
+    res.setHeader('Cache-Control', 'no-store');
+    res.type('application/javascript').send(`window.__KAMISADO_RUNTIME_CONFIG__ = ${config};`);
+});
 
 // Serve static files from public directory
 const publicDir = path.resolve(__dirname, '../../public');
@@ -591,10 +623,43 @@ io.on('connection', (socket) => {
     });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
+function environmentPort(): number {
+    const parsed = Number.parseInt(process.env.PORT || '3000', 10);
+    return Number.isInteger(parsed) && parsed >= 0 && parsed <= 65535 ? parsed : 3000;
+}
+
+export async function startServer(options: ServerStartOptions = {}): Promise<RunningServer> {
+    if (!server.listening) {
+        const port = options.port ?? environmentPort();
+        await new Promise<void>((resolve, reject) => {
+            const onError = (error: Error) => reject(error);
+            server.once('error', onError);
+            server.listen(port, options.host, () => {
+                server.off('error', onError);
+                resolve();
+            });
+        });
+    }
+
+    const address = server.address() as AddressInfo | null;
+    if (!address || typeof address === 'string') throw new Error('Server did not expose a TCP port');
+
+    return {
+        port: address.port,
+        close: () => new Promise<void>((resolve, reject) => {
+            io.close(error => error ? reject(error) : resolve());
+        }),
+    };
+}
+
+if (require.main === module) {
+    startServer()
+        .then(({ port }) => console.log(`Server running on port ${port}`))
+        .catch(error => {
+            console.error('Unable to start server:', error);
+            process.exitCode = 1;
+        });
+}
 
 function startTurnTimer(gameId: string, session: GameSession): void {
     const game = session.gameInstance;
