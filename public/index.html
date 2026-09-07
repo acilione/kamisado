@@ -52,6 +52,12 @@
                         <option value="random">Random</option>
                     </select>
                 </label>
+                <div class="menu-display-option">
+                    <label class="symbol-toggle" for="symbol-mode">
+                        <span>Symbol mode <small>Color-blind friendly</small></span>
+                        <input type="checkbox" id="symbol-mode" class="symbol-mode-toggle" role="switch" aria-label="Symbol mode (color-blind friendly)">
+                    </label>
+                </div>
                 <button id="create-btn">Create Game</button>
             </div>
 
@@ -65,12 +71,13 @@
             </div>
 
             <div class="menu-group">
-                <button id="tutorial-toggle" style="background:#555;width:100%;">How to Play</button>
+                <button id="tutorial-toggle" aria-expanded="false" aria-controls="tutorial-content" style="background:#555;width:100%;">How to Play</button>
                 <div id="tutorial-content" class="hidden" style="text-align:left;margin-top:15px;line-height:1.6;">
                     <h4 style="margin:0 0 8px;text-align:center;">Kamisado Rules</h4>
                     <p><strong>Goal:</strong> Move one of your towers to the opponent's home row (the row closest to them).</p>
 
                     <p><strong>Setup:</strong> Each player has 8 colored towers on their home row. The board has 64 colored squares in a fixed pattern. Black moves first.</p>
+                    <p><strong>Symbol mode:</strong> Turn it on in the menu options or below the board for a neutral board with shapes instead of colors. Match the square's shape to the shape inside a tower. On occupied squares, the small corner shape identifies the square. Black and white discs identify the players; sumo ranks remain separate numbers. The symbol key below the board lists each shape.</p>
 
                     <h4 style="margin:12px 0 6px;">Movement</h4>
                     <ul style="padding-left:20px;margin:0;">
@@ -110,11 +117,22 @@
         <!-- Game Screen -->
         <div id="game-screen" class="hidden">
             <div id="status-bar">
-                <div id="turn-indicator">Waiting...</div>
+                <div id="turn-indicator" aria-live="polite" aria-atomic="true">Waiting...</div>
                 <div id="message"></div>
             </div>
             <div id="board-container">
                 <div id="board"></div>
+            </div>
+            <div id="board-options" aria-label="Board display options">
+                <label class="symbol-toggle" for="game-symbol-mode">
+                    Symbols
+                    <input type="checkbox" id="game-symbol-mode" class="symbol-mode-toggle" role="switch" aria-label="Symbol mode (color-blind friendly)">
+                </label>
+                <details id="symbol-key" class="hidden">
+                    <summary>Symbol key</summary>
+                    <p>Match the square's shape to the shape inside a tower.</p>
+                    <ul id="symbol-legend" aria-label="Color and symbol key"></ul>
+                </details>
             </div>
         </div>
     </div>

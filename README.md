@@ -15,6 +15,7 @@ A real-time implementation of [Kamisado](https://en.wikipedia.org/wiki/Kamisado)
 - Chess-style match clocks with 1, 3, 5, 10, and 30-minute presets
 - Standard, fill, and 37-layout random position modes
 - Responsive board and controls for desktop and mobile browsers
+- Color-blind friendly symbol mode with matching shapes on squares, towers, and turn instructions
 - Self-contained desktop host for direct/LAN and ngrok rooms
 - Automated rule, timer, multiplayer, reconnection, and adversarial socket tests
 
@@ -86,6 +87,8 @@ npm run ngrok
 No separate ngrok executable is required. Send the displayed HTTPS URL to the other player. Direct `/game/<id>` links are handled by the same web client.
 
 ## Rules implemented
+
+Enable **Symbol mode** among the menu options, or use the compact **Symbols** switch below the board. This replaces the colored board with neutral squares, distinct shapes, and black/white towers. Match the square's shape to the shape inside a tower. On occupied squares, the square's shape moves to the top-left corner so both remain visible. The required-move indicator uses the same shapes, while sumo ranks remain separate numbered badges. Expand **Symbol key** below the board when you need the color-to-shape reference. The setting is saved in your browser and applies only to your view, including when spectating.
 
 Kamisado is played on an 8x8 colored board. Each player has eight towers, one for each board color. Black moves first.
 

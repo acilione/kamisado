@@ -1,4 +1,6 @@
 import type { GameState, PlayerColor, PieceColor } from '../shared/types.js';
+import { BOARD_COLORS, STANDARD_LAYOUT } from '../shared/constants.js';
+import { COLOR_SYMBOLS, createColorSymbol } from './symbols.js';
 
 const socket = io();
 
@@ -22,6 +24,44 @@ const screens = {
 const boardEl = document.getElementById('board')!;
 const turnIndicatorEl = document.getElementById('turn-indicator')!;
 const messageEl = document.getElementById('message')!;
+const symbolToggles = document.querySelectorAll<HTMLInputElement>('.symbol-mode-toggle');
+const symbolLegend = document.getElementById('symbol-legend')!;
+const symbolKey = document.getElementById('symbol-key') as HTMLDetailsElement;
+let symbolMode = false;
+try {
+    symbolMode = localStorage.getItem('kamisado_symbolMode') === 'true';
+} catch {
+    // Display preferences still work when browser storage is unavailable.
+}
+
+for (const color of STANDARD_LAYOUT) {
+    const item = document.createElement('li');
+    item.append(createColorSymbol(color), document.createTextNode(`${color} / ${COLOR_SYMBOLS[color].name}`));
+    symbolLegend.appendChild(item);
+}
+applySymbolMode();
+symbolToggles.forEach(toggle => toggle.addEventListener('change', () => {
+    symbolMode = toggle.checked;
+    try {
+        localStorage.setItem('kamisado_symbolMode', String(symbolMode));
+    } catch {
+        // Keep the setting for this page even if it cannot be saved.
+    }
+    applySymbolMode();
+    renderBoard();
+    updateUI();
+}));
+
+function applySymbolMode(): void {
+    symbolToggles.forEach(toggle => { toggle.checked = symbolMode; });
+    document.getElementById('app')!.classList.toggle('symbol-mode', symbolMode);
+    symbolKey.classList.toggle('hidden', !symbolMode);
+    if (!symbolMode) symbolKey.open = false;
+}
+
+function describeColor(color: PieceColor): string {
+    return symbolMode ? COLOR_SYMBOLS[color].name : color;
+}
 
 // Parse URL for direct game link
 function getGameIdFromUrl(): string | null {
@@ -69,14 +109,16 @@ document.getElementById('tutorial-toggle')!.addEventListener('click', () => {
     const content = document.getElementById('tutorial-content')!;
     const btn = document.getElementById('tutorial-toggle')!;
     content.classList.toggle('hidden');
+    btn.setAttribute('aria-expanded', String(!content.classList.contains('hidden')));
     btn.textContent = content.classList.contains('hidden') ? 'How to Play' : 'Hide Tutorial';
 });
 
 function getPlayerId(): string {
-    let id = localStorage.getItem('kamisado_playerId');
+    let id: string | null = null;
+    try { id = localStorage.getItem('kamisado_playerId'); } catch { /* Use a session-only ID. */ }
     if (!id) {
         id = Math.random().toString(36).substring(2) + Date.now().toString(36);
-        localStorage.setItem('kamisado_playerId', id);
+        try { localStorage.setItem('kamisado_playerId', id); } catch { /* Storage is optional. */ }
     }
     return id;
 }
@@ -302,16 +344,25 @@ function renderBoard(): void {
     const viewAsBlack = isSpectator ? false : playerColor === 'black';
     const rows = viewAsBlack ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
     const cols = viewAsBlack ? [7, 6, 5, 4, 3, 2, 1, 0] : [0, 1, 2, 3, 4, 5, 6, 7];
-    const SQUARES = getBoardColors();
 
     rows.forEach(r => {
         cols.forEach(c => {
-            const squareColor = SQUARES[r][c];
+            const squareColor = BOARD_COLORS[r][c];
             const piece = gameState!.board[r][c];
             const cell = document.createElement('div');
             cell.className = `cell ${squareColor}`;
+            if ((r + c) % 2 !== 0) cell.classList.add('alternate-square');
             cell.dataset.r = String(r);
             cell.dataset.c = String(c);
+            const squareLabel = `Row ${r + 1}, column ${c + 1}: ${describeColor(squareColor)} square`;
+            cell.title = piece
+                ? `${squareLabel}; ${piece.player} ${describeColor(piece.color)} tower, rank ${piece.sumo}`
+                : `${squareLabel}; empty`;
+            cell.setAttribute('aria-label', cell.title);
+            cell.setAttribute('role', 'group');
+            if (symbolMode) {
+                cell.appendChild(createColorSymbol(squareColor, piece ? 'square-symbol' : 'square-symbol empty-square-symbol'));
+            }
 
             if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
                 cell.classList.add('selected');
@@ -321,7 +372,13 @@ function renderBoard(): void {
                 const pieceEl = document.createElement('div');
                 pieceEl.className = `piece ${piece.player} ${piece.color}`;
                 pieceEl.dataset.color = piece.color;
-                if (piece.sumo > 0) pieceEl.textContent = String(piece.sumo);
+                if (symbolMode) pieceEl.appendChild(createColorSymbol(piece.color, 'tower-symbol'));
+                if (piece.sumo > 0) {
+                    const rank = document.createElement('span');
+                    rank.className = 'sumo-rank';
+                    rank.textContent = String(piece.sumo);
+                    pieceEl.appendChild(rank);
+                }
                 cell.appendChild(pieceEl);
 
                 if (canInteract && piece.player === playerColor) {
@@ -342,7 +399,8 @@ function renderBoard(): void {
 }
 
 function handleCellClick(r: number, c: number): void {
-    if (!gameState || gameState.turn !== playerColor) return;
+    if (!gameState || !gameId || isSpectator || gameState.finished ||
+        gameState.roundState !== 'playing' || gameState.turn !== playerColor) return;
 
     const piece = gameState.board[r][c];
 
@@ -375,7 +433,7 @@ function updateUI(): void {
 
     let statusText = `Turn: ${gameState.turn.toUpperCase()}`;
     if (gameState.requiredColor) {
-        statusText += ` (Must move ${gameState.requiredColor.toUpperCase()})`;
+        statusText += ` (Must move ${describeColor(gameState.requiredColor).toUpperCase()})`;
     }
 
     if (gameState.finished) {
@@ -498,6 +556,9 @@ function updateUI(): void {
     } else {
         // Playing
         turnIndicatorEl.appendChild(document.createTextNode(statusText));
+        if (symbolMode && gameState.requiredColor) {
+            turnIndicatorEl.appendChild(createColorSymbol(gameState.requiredColor, 'required-symbol'));
+        }
 
         if (gameState.positionMode === 'random' && gameState.roundPositionInfo) {
             const posInfo = document.createElement('div');
@@ -606,20 +667,4 @@ function updateClocks(): void {
             whiteEl.style.textDecoration = 'underline';
         }
     }
-}
-
-function getBoardColors(): PieceColor[][] {
-    type C = PieceColor;
-    const o: C = 'orange', b: C = 'blue', p: C = 'purple', pi: C = 'pink';
-    const y: C = 'yellow', r: C = 'red', g: C = 'green', br: C = 'brown';
-    return [
-        [o, b, p, pi, y, r, g, br],
-        [r, o, pi, g, b, y, br, p],
-        [g, pi, o, r, p, br, y, b],
-        [pi, p, b, o, br, g, r, y],
-        [y, r, g, br, o, b, p, pi],
-        [b, y, br, p, r, o, pi, g],
-        [p, br, y, b, g, pi, o, r],
-        [br, g, r, y, pi, p, b, o],
-    ];
 }
