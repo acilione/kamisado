@@ -92,22 +92,7 @@
     border-radius: 5px;
     overflow: visible;
     background-color: #211e19;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='20' viewBox='0 0 48 20'%3E%3Cpath d='M0 10Q12-2 24 10T48 10M0 10Q12 22 24 10T48 10' fill='none' stroke='%23766b54' stroke-width='.75'/%3E%3Cpath d='M0 10Q12 2 24 10T48 10' fill='none' stroke='%23b4a787' stroke-width='.5'/%3E%3C/svg%3E");
     box-shadow: 0 3px 0 #100f0d, 0 6px 0 #29241b, 0 24px 40px #0007;
-}
-#app[data-board-view="realistic-2d"] #board::after {
-    content: 'K A M I S A D O';
-    position: absolute;
-    bottom: -18px;
-    left: 50%;
-    transform: translateX(-50%);
-    padding: 0 12px;
-    line-height: 16px;
-    white-space: nowrap;
-    background: #211e19;
-    color: #d1c8af;
-    font: 9px Georgia, serif;
-    letter-spacing: 2px;
 }
 #app[data-board-view="realistic-2d"] #board-options {
     width: calc(8 * var(--cell-size) + 40px);
