@@ -15,6 +15,7 @@ A real-time implementation of [Kamisado](https://en.wikipedia.org/wiki/Kamisado)
 - Chess-style match clocks with 1, 3, 5, 10, and 30-minute presets
 - Standard, fill, and 37-layout random position modes
 - Responsive board and controls for desktop and mobile browsers
+- Realistic 2D and interactive 3D views with octagonal towers, inspired by the physical game
 - Color-blind friendly symbol mode with matching shapes on squares, towers, and turn instructions
 - Self-contained desktop host for direct/LAN and ngrok rooms
 - Automated rule, timer, multiplayer, reconnection, and adversarial socket tests
@@ -86,9 +87,15 @@ npm run ngrok
 
 No separate ngrok executable is required. Send the displayed HTTPS URL to the other player. Direct `/game/<id>` links are handled by the same web client.
 
+## Board views
+
+Choose **Simple**, **Realistic 2D**, or **Realistic 3D** among the menu options or below the board. The realistic views use a framed board, the physical game's palette, and black/ivory octagonal towers with colored characters. The 3D view adds modeled tower tiers and crenellations, lighting, shadows, and an adjustable camera. Click a tower and a destination to move; drag to rotate, scroll or pinch to zoom, and use **Reset view** to return to your side.
+
+The **Symbols** switch works in all three views. Simple view uses neutral squares and geometric shapes. Realistic 2D and 3D follow `ref_imgs/kamisado_colorblind board.png`: they retain the colored squares and print pale characters in opposite corners, matching the colored character on each tower. Display preferences are saved locally and do not affect the opponent or the rules. If WebGL is unavailable, the game falls back to realistic 2D. All rendering assets are bundled locally; the photos in `ref_imgs/` are design references, not runtime dependencies.
+
 ## Rules implemented
 
-Enable **Symbol mode** among the menu options, or use the compact **Symbols** switch below the board. This replaces the colored board with neutral squares, distinct shapes, and black/white towers. Match the square's shape to the shape inside a tower. On occupied squares, the square's shape moves to the top-left corner so both remain visible. The required-move indicator uses the same shapes, while sumo ranks remain separate numbered badges. Expand **Symbol key** below the board when you need the color-to-shape reference. The setting is saved in your browser and applies only to your view, including when spectating.
+Enable **Symbol mode** among the menu options, or use the compact **Symbols** switch below the board. Match the square's marking to the marking inside a tower: geometric shapes in Simple view, or the physical board's printed characters in realistic views. The required-move indicator and **Symbol key** use the same markings as the current view, while sumo ranks remain separate numbers. The setting is saved in your browser and applies only to your view, including when spectating.
 
 Kamisado is played on an 8x8 colored board. Each player has eight towers, one for each board color. Black moves first.
 
@@ -131,6 +138,7 @@ The available match targets are 1, 3, 7, and 15 points.
 | `npm run test:unit` | Run the game-rule and timer suites |
 | `npm run test:integration` | Build, start an isolated server, and run all Socket.IO suites |
 | `npm test` | Run type checks, unit tests, and integration tests |
+| `npm run test:browser` | Build and verify board views, preferences, interaction, and 3D fallback in Chromium |
 | `npm run ngrok` | Start the compiled server and embedded ngrok provider |
 | `npm run desktop:dev` | Build and launch the Electron host |
 | `npm run desktop:package` | Create an unpacked desktop application |
@@ -189,6 +197,10 @@ The test suite covers the rules engine as well as real Socket.IO clients. Integr
 ```bash
 npm test
 ```
+
+Browser rendering checks use Playwright. Install its browser once with `npx playwright install chromium`, then run `npm run test:browser`. Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE` to use an existing Chromium installation. Screenshots are saved in `out/browser-checks/`.
+
+The realistic tower character outlines are derived from Noto Sans CJK, licensed under the SIL Open Font License; the notice is included in `public/licenses/NotoSansCJK-OFL.txt`.
 
 ## License
 
