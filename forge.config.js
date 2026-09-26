@@ -9,6 +9,7 @@ module.exports = {
       /^\/\.github($|\/)/,
       /^\/src($|\/)/,
       /^\/tests($|\/)/,
+      /^\/ref_imgs($|\/)/,
       /^\/scripts($|\/)/,
       /^\/out($|\/)/,
     ],

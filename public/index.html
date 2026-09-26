@@ -8,6 +8,7 @@
     <meta name="theme-color" content="#15171c">
     <title>Kamisado Online</title>
     <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/realistic.css">
     <script src="/socket.io/socket.io.js"></script>
     <script src="/runtime-config.js"></script>
     <script src="/client.js" defer></script>
@@ -53,6 +54,14 @@
                     </select>
                 </label>
                 <div class="menu-display-option">
+                    <label class="board-view-label" for="board-view">
+                        Board view
+                        <select id="board-view" class="board-view-select">
+                            <option value="simple">Simple</option>
+                            <option value="realistic-2d">Realistic 2D</option>
+                            <option value="realistic-3d">Realistic 3D</option>
+                        </select>
+                    </label>
                     <label class="symbol-toggle" for="symbol-mode">
                         <span>Symbol mode <small>Color-blind friendly</small></span>
                         <input type="checkbox" id="symbol-mode" class="symbol-mode-toggle" role="switch" aria-label="Symbol mode (color-blind friendly)">
@@ -77,7 +86,9 @@
                     <p><strong>Goal:</strong> Move one of your towers to the opponent's home row (the row closest to them).</p>
 
                     <p><strong>Setup:</strong> Each player has 8 colored towers on their home row. The board has 64 colored squares in a fixed pattern. Black moves first.</p>
-                    <p><strong>Symbol mode:</strong> Turn it on in the menu options or below the board for a neutral board with shapes instead of colors. Match the square's shape to the shape inside a tower. On occupied squares, the small corner shape identifies the square. Black and white discs identify the players; sumo ranks remain separate numbers. The symbol key below the board lists each shape.</p>
+                    <p><strong>Symbol mode:</strong> Turn it on in the menu options or below the board. Simple view uses neutral squares and matching shapes. Realistic views reproduce the physical color-blind board: colored squares with pale characters in opposite corners, matching the characters on the towers. Match the square's marking to the tower's marking. Black and white towers identify the players; sumo ranks remain separate numbers. Open the symbol key below the board for the markings used by your current view.</p>
+
+                    <p><strong>Board views:</strong> Choose Simple, Realistic 2D, or Realistic 3D in the menu or below the board. The realistic views recreate the physical game's framed board and octagonal towers. In 3D, click a tower then a destination to move, drag to rotate, and scroll or pinch to zoom. Use Reset view to return to your side. Symbols work in every view.</p>
 
                     <h4 style="margin:12px 0 6px;">Movement</h4>
                     <ul style="padding-left:20px;margin:0;">
@@ -121,16 +132,32 @@
                 <div id="message"></div>
             </div>
             <div id="board-container">
-                <div id="board"></div>
+                <div id="board" aria-label="Game board"></div>
+                <div id="board-3d" class="hidden"></div>
             </div>
+            <div id="camera-controls" class="hidden">
+                <span>Drag to rotate &middot; Scroll or pinch to zoom</span>
+                <button id="reset-camera" type="button">Reset view</button>
+            </div>
+            <p id="view-notice" role="status"></p>
             <div id="board-options" aria-label="Board display options">
-                <label class="symbol-toggle" for="game-symbol-mode">
-                    Symbols
-                    <input type="checkbox" id="game-symbol-mode" class="symbol-mode-toggle" role="switch" aria-label="Symbol mode (color-blind friendly)">
-                </label>
+                <div class="board-toolbar">
+                    <label class="board-view-label" for="game-board-view">
+                        View
+                        <select id="game-board-view" class="board-view-select">
+                            <option value="simple">Simple</option>
+                            <option value="realistic-2d">Realistic 2D</option>
+                            <option value="realistic-3d">Realistic 3D</option>
+                        </select>
+                    </label>
+                    <label class="symbol-toggle" for="game-symbol-mode">
+                        Symbols
+                        <input type="checkbox" id="game-symbol-mode" class="symbol-mode-toggle" role="switch" aria-label="Symbol mode (color-blind friendly)">
+                    </label>
+                </div>
                 <details id="symbol-key" class="hidden">
                     <summary>Symbol key</summary>
-                    <p>Match the square's shape to the shape inside a tower.</p>
+                    <p id="symbol-key-help">Match the square's shape to the shape inside a tower.</p>
                     <ul id="symbol-legend" aria-label="Color and symbol key"></ul>
                 </details>
             </div>

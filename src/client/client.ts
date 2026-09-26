@@ -1,6 +1,8 @@
 import type { GameState, PlayerColor, PieceColor } from '../shared/types.js';
 import { BOARD_COLORS, STANDARD_LAYOUT } from '../shared/constants.js';
 import { COLOR_SYMBOLS, createColorSymbol } from './symbols.js';
+import { createRealisticTower, createRealisticSymbol, REALISTIC_COLORS } from './realistic-art.js';
+import { RealisticBoard3D } from './board-3d.js';
 
 const socket = io();
 
@@ -27,6 +29,59 @@ const messageEl = document.getElementById('message')!;
 const symbolToggles = document.querySelectorAll<HTMLInputElement>('.symbol-mode-toggle');
 const symbolLegend = document.getElementById('symbol-legend')!;
 const symbolKey = document.getElementById('symbol-key') as HTMLDetailsElement;
+type BoardView = 'simple' | 'realistic-2d' | 'realistic-3d';
+const boardViewSelects = document.querySelectorAll<HTMLSelectElement>('.board-view-select');
+const board3DEl = document.getElementById('board-3d')!;
+const viewNotice = document.getElementById('view-notice')!;
+let boardView: BoardView = 'simple';
+let board3D: RealisticBoard3D | null = null;
+try {
+    const savedView = localStorage.getItem('kamisado_boardView');
+    if (savedView === 'realistic-2d' || savedView === 'realistic-3d') boardView = savedView;
+} catch { /* Display settings remain usable without browser storage. */ }
+applyBoardView();
+boardViewSelects.forEach(select => select.addEventListener('change', () => {
+    const value = select.value;
+    if (value !== 'simple' && value !== 'realistic-2d' && value !== 'realistic-3d') return;
+    boardView = value;
+    viewNotice.textContent = '';
+    saveBoardView();
+    applyBoardView();
+    applySymbolMode();
+    renderBoard();
+    updateUI();
+}));
+document.getElementById('reset-camera')!.addEventListener('click', () => board3D?.resetCamera());
+
+function saveBoardView(): void {
+    try { localStorage.setItem('kamisado_boardView', boardView); } catch { /* Session-only preference. */ }
+}
+
+function dispose3DBoard(): void {
+    board3D?.dispose();
+    board3D = null;
+}
+
+function applyBoardView(): void {
+    document.getElementById('app')!.dataset.boardView = boardView;
+    boardViewSelects.forEach(select => { select.value = boardView; });
+    boardEl.classList.toggle('hidden', boardView === 'realistic-3d');
+    board3DEl.classList.toggle('hidden', boardView !== 'realistic-3d');
+    document.getElementById('camera-controls')!.classList.toggle('hidden', boardView !== 'realistic-3d');
+    if (boardView !== 'realistic-3d') dispose3DBoard();
+}
+
+function fallbackFrom3D(): void {
+    if (boardView !== 'realistic-3d') return;
+    boardView = 'realistic-2d';
+    saveBoardView();
+    applyBoardView();
+    viewNotice.textContent = '3D is unavailable on this device. Showing realistic 2D instead.';
+    renderBoard();
+}
+
+window.addEventListener('pagehide', dispose3DBoard);
+window.addEventListener('pageshow', () => { if (gameState) renderBoard(); });
 let symbolMode = false;
 try {
     symbolMode = localStorage.getItem('kamisado_symbolMode') === 'true';
@@ -34,10 +89,21 @@ try {
     // Display preferences still work when browser storage is unavailable.
 }
 
-for (const color of STANDARD_LAYOUT) {
-    const item = document.createElement('li');
-    item.append(createColorSymbol(color), document.createTextNode(`${color} / ${COLOR_SYMBOLS[color].name}`));
-    symbolLegend.appendChild(item);
+function createDisplaySymbol(color: PieceColor, className = ''): HTMLSpanElement {
+    return boardView === 'simple' ? createColorSymbol(color, className) : createRealisticSymbol(color, className);
+}
+
+function renderSymbolLegend(): void {
+    symbolLegend.replaceChildren();
+    for (const color of STANDARD_LAYOUT) {
+        const item = document.createElement('li');
+        const label = boardView === 'simple' ? `${color} / ${COLOR_SYMBOLS[color].name}` : color;
+        item.append(createDisplaySymbol(color), document.createTextNode(label));
+        symbolLegend.appendChild(item);
+    }
+    document.getElementById('symbol-key-help')!.textContent = boardView === 'simple'
+        ? "Match the square's shape to the shape inside a tower."
+        : 'Match the printed character on a square to the same character on a tower.';
 }
 applySymbolMode();
 symbolToggles.forEach(toggle => toggle.addEventListener('change', () => {
@@ -53,6 +119,7 @@ symbolToggles.forEach(toggle => toggle.addEventListener('change', () => {
 }));
 
 function applySymbolMode(): void {
+    renderSymbolLegend();
     symbolToggles.forEach(toggle => { toggle.checked = symbolMode; });
     document.getElementById('app')!.classList.toggle('symbol-mode', symbolMode);
     symbolKey.classList.toggle('hidden', !symbolMode);
@@ -60,7 +127,7 @@ function applySymbolMode(): void {
 }
 
 function describeColor(color: PieceColor): string {
-    return symbolMode ? COLOR_SYMBOLS[color].name : color;
+    return symbolMode && boardView === 'simple' ? COLOR_SYMBOLS[color].name : color;
 }
 
 // Parse URL for direct game link
@@ -204,6 +271,7 @@ socket.on('playerJoined', () => {
 });
 
 socket.on('lobbyExpired', () => {
+    dispose3DBoard();
     alert('Lobby has expired or was cancelled.');
     screens.game.classList.add('hidden');
     screens.menu.classList.remove('hidden');
@@ -275,10 +343,12 @@ socket.on('gameEnded', ({ reason, winner }) => {
     if (disconnectInterval) clearInterval(disconnectInterval);
     if (chessClockInterval) { clearInterval(chessClockInterval); chessClockInterval = null; }
 
+    renderBoard();
     updateUI();
 });
 
 socket.on('sessionTakenOver', () => {
+    dispose3DBoard();
     if (disconnectInterval) clearInterval(disconnectInterval);
     alert('Session active in another tab/window. This connection is now inactive.');
     screens.game.classList.add('hidden');
@@ -351,6 +421,7 @@ function renderBoard(): void {
             const piece = gameState!.board[r][c];
             const cell = document.createElement('div');
             cell.className = `cell ${squareColor}`;
+            cell.style.setProperty('--tile-color', REALISTIC_COLORS[squareColor]);
             if ((r + c) % 2 !== 0) cell.classList.add('alternate-square');
             cell.dataset.r = String(r);
             cell.dataset.c = String(c);
@@ -361,7 +432,14 @@ function renderBoard(): void {
             cell.setAttribute('aria-label', cell.title);
             cell.setAttribute('role', 'group');
             if (symbolMode) {
-                cell.appendChild(createColorSymbol(squareColor, piece ? 'square-symbol' : 'square-symbol empty-square-symbol'));
+                if (boardView === 'simple') {
+                    cell.appendChild(createColorSymbol(squareColor, piece ? 'square-symbol' : 'square-symbol empty-square-symbol'));
+                } else {
+                    cell.append(
+                        createRealisticSymbol(squareColor, 'square-symbol realistic-square-symbol'),
+                        createRealisticSymbol(squareColor, 'square-symbol realistic-square-symbol opposite-symbol'),
+                    );
+                }
             }
 
             if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
@@ -372,7 +450,11 @@ function renderBoard(): void {
                 const pieceEl = document.createElement('div');
                 pieceEl.className = `piece ${piece.player} ${piece.color}`;
                 pieceEl.dataset.color = piece.color;
-                if (symbolMode) pieceEl.appendChild(createColorSymbol(piece.color, 'tower-symbol'));
+                if (boardView !== 'simple') {
+                    pieceEl.appendChild(createRealisticTower(piece));
+                } else if (symbolMode) {
+                    pieceEl.appendChild(createColorSymbol(piece.color, 'tower-symbol'));
+                }
                 if (piece.sumo > 0) {
                     const rank = document.createElement('span');
                     rank.className = 'sumo-rank';
@@ -396,6 +478,15 @@ function renderBoard(): void {
             boardEl.appendChild(cell);
         });
     });
+
+    if (boardView === 'realistic-3d') {
+        try {
+            board3D ??= new RealisticBoard3D(board3DEl, handleCellClick, fallbackFrom3D);
+            board3D.update({ state: gameState, viewAsBlack, symbolMode, selected: selectedPiece, canInteract, playerColor });
+        } catch {
+            fallbackFrom3D();
+        }
+    }
 }
 
 function handleCellClick(r: number, c: number): void {
@@ -557,7 +648,7 @@ function updateUI(): void {
         // Playing
         turnIndicatorEl.appendChild(document.createTextNode(statusText));
         if (symbolMode && gameState.requiredColor) {
-            turnIndicatorEl.appendChild(createColorSymbol(gameState.requiredColor, 'required-symbol'));
+            turnIndicatorEl.appendChild(createDisplaySymbol(gameState.requiredColor, 'required-symbol'));
         }
 
         if (gameState.positionMode === 'random' && gameState.roundPositionInfo) {
