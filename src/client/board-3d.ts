@@ -280,42 +280,6 @@ export class RealisticBoard3D {
         );
         trim.position.y = -0.047;
         this.board.add(trim);
-        const frameTexture = this.texture('frame-pattern', 2048, 96, ctx => {
-            ctx.fillStyle = '#191a18';
-            ctx.fillRect(0, 0, 2048, 96);
-            ctx.strokeStyle = '#a99c7d';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(0, 7); ctx.lineTo(2048, 7);
-            ctx.moveTo(0, 89); ctx.lineTo(2048, 89);
-            ctx.stroke();
-            for (let i = 0; i < 16; i++) {
-                if (i >= 6 && i <= 9) continue;
-                const x = i * 128;
-                ctx.strokeStyle = '#b1a58b';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.moveTo(x + 12, 47);
-                ctx.bezierCurveTo(x + 4, 16, x + 80, 13, x + 111, 46);
-                ctx.bezierCurveTo(x + 141, 79, x + 63, 79, x + 32, 49);
-                ctx.bezierCurveTo(x + 7, 25, x + 81, 29, x + 106, 51);
-                ctx.stroke();
-            }
-            ctx.fillStyle = '#d8cbb3';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.font = 'italic 58px Georgia, serif';
-            ctx.fillText('Kamisado', 1024, 48);
-        });
-        const edgeMaterial = this.material('frame-pattern', { map: frameTexture, roughness: 0.6 });
-        for (let side = 0; side < 4; side++) {
-            const strip = new THREE.Mesh(this.geometry('frame-strip', () => new THREE.PlaneGeometry(8.88, 0.43)), edgeMaterial);
-            strip.rotation.x = -Math.PI / 2;
-            strip.rotation.z = side * Math.PI / 2;
-            strip.position.set(Math.sin(side * Math.PI / 2) * 4.23, 0.199, Math.cos(side * Math.PI / 2) * 4.23);
-            strip.receiveShadow = true;
-            this.board.add(strip);
-        }
         const tileGeometry = this.geometry('tile', () => new THREE.BoxGeometry(0.995, 0.04, 0.995));
         for (let r = 0; r < 8; r++) {
             const row: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>[] = [];
