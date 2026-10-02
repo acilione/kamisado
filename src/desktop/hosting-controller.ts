@@ -2,6 +2,7 @@ import type { RunningServer, ServerStartOptions } from '../server/index.js';
 import type { ConnectivityProviderManager } from './connectivity/provider-manager.js';
 import type { DesktopState, StartHostingRequest } from './contracts.js';
 import type { TokenVault } from './token-vault.js';
+import type { ConnectivityDetails } from './connectivity/types.js';
 
 interface HostingDependencies {
     manager: Pick<ConnectivityProviderManager, 'start' | 'stop'>;
@@ -16,6 +17,12 @@ export function validateStartRequest(value: unknown): StartHostingRequest {
     if (!value || typeof value !== 'object') throw new Error('Invalid hosting request.');
     const request = value as Partial<StartHostingRequest>;
     if (request.mode !== 'direct' && request.mode !== 'ngrok') throw new Error('Unknown connectivity mode.');
+    if (request.localOnly !== undefined && typeof request.localOnly !== 'boolean') {
+        throw new Error('Invalid local play preference.');
+    }
+    if (request.localOnly && request.mode !== 'direct') {
+        throw new Error('Computer play does not use an Internet connection.');
+    }
     if (request.authToken !== undefined && (typeof request.authToken !== 'string' || request.authToken.length > 2048)) {
         throw new Error('Invalid ngrok token.');
     }
@@ -36,7 +43,7 @@ export class HostingController {
     private sessionToken: string | null = null;
     private transition: Promise<unknown> = Promise.resolve();
     private state: DesktopState = {
-        status: 'idle', localOrigin: '', port: 0, connectivity: null,
+        status: 'idle', localOrigin: '', port: 0, localOnly: false, connectivity: null,
         hasSavedNgrokToken: false, hasSessionNgrokToken: false, canSaveNgrokToken: false,
     };
 
@@ -90,20 +97,34 @@ export class HostingController {
     }
 
     private async startHosting(request: StartHostingRequest): Promise<DesktopState> {
+        validateStartRequest(request);
+        const localOnly = request.localOnly === true;
+        // Rebinding would end games or expose an offline session to the network.
+        // Require the user to end the existing session before changing its scope.
+        if (this.server && localOnly !== this.state.localOnly) {
+            throw new Error('End the current session before switching between computer play and hosting friends.');
+        }
         const wasRunning = this.server !== null;
         this.state = { ...this.state, status: 'starting', error: undefined };
         try {
             if (!this.server) {
+                const host = localOnly ? '127.0.0.1' : '0.0.0.0';
                 try {
-                    this.server = await this.dependencies.startServer({ port: this.dependencies.port, host: '0.0.0.0' });
+                    this.server = await this.dependencies.startServer({ port: this.dependencies.port, host });
                 } catch (error) {
                     if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
-                    this.server = await this.dependencies.startServer({ port: 0, host: '0.0.0.0' });
+                    this.server = await this.dependencies.startServer({ port: 0, host });
                 }
-                this.state = { ...this.state, port: this.server.port, localOrigin: `http://127.0.0.1:${this.server.port}` };
+                this.state = { ...this.state, localOnly, port: this.server.port, localOrigin: `http://127.0.0.1:${this.server.port}` };
             }
             const authToken = request.authToken?.trim() || this.sessionToken || this.savedToken || undefined;
-            const connectivity = await this.dependencies.manager.start(request.mode, {
+            const connectivity: ConnectivityDetails = localOnly ? {
+                mode: 'direct',
+                publicOrigin: this.state.localOrigin,
+                reachableOrigins: [this.state.localOrigin],
+                title: 'Computer play',
+                description: 'Play on this computer without an Internet connection.',
+            } : await this.dependencies.manager.start(request.mode, {
                 port: this.state.port, localOrigin: this.state.localOrigin,
             }, { authToken, advertisedOrigin: request.advertisedOrigin });
             let storageWarning: string | undefined;
@@ -127,7 +148,7 @@ export class HostingController {
             this.state = { ...this.state, status: 'ready', connectivity, error: storageWarning };
         } catch (error) {
             const message = this.publicError(error, request.authToken?.trim());
-            if (wasRunning && this.server) {
+            if (wasRunning && this.server && !localOnly) {
                 // A tunnel failure must not destroy a match already running locally.
                 try {
                     const connectivity = await this.dependencies.manager.start('direct', {
@@ -160,7 +181,7 @@ export class HostingController {
             try { await close(); }
             catch (error) { failures.push(this.publicError(error)); }
         }
-        this.state = { ...this.state, localOrigin: '', port: 0, connectivity: null };
+        this.state = { ...this.state, localOrigin: '', port: 0, localOnly: false, connectivity: null };
         return failures;
     }
 }

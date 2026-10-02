@@ -741,3 +741,28 @@ select:focus-visible {
     color: #f1dfb6;
     line-height: 1.5;
 }
+
+.option-help {
+    margin: -3px 0 16px;
+    color: #bac1ce;
+    font-size: 0.8rem;
+    line-height: 1.5;
+}
+
+#computer-status {
+    margin-top: 8px;
+    color: #c0c6d2;
+    font-size: 0.85rem;
+}
+
+#computer-controls { text-align: center; margin-top: 12px; }
+#leave-computer-btn {
+    width: auto;
+    margin: 0;
+    padding: 7px 12px;
+    background: transparent;
+    border: 1px solid #ffffff30;
+    color: #c0c6d2;
+    font-size: 0.8rem;
+}
+#leave-computer-btn:hover { background: #ffffff0c; color: #fff; }

@@ -289,7 +289,7 @@ export class KamisadoGame {
       this.movePieceInternal(fromR, fromC, toR, toC);
 
       this.requiredColor = BOARD_COLORS[validation.pushEndR][fromC];
-      this.handleDeadlockCheck();
+      this.handleDeadlockCheck(player, nextColor);
       return;
     } else {
       this.movePieceInternal(fromR, fromC, toR, toC);
@@ -306,7 +306,7 @@ export class KamisadoGame {
 
     this.turn = player === 'black' ? 'white' : 'black';
     this.requiredColor = nextColor;
-    this.handleDeadlockCheck();
+    this.handleDeadlockCheck(player, nextColor);
   }
 
   movePieceInternal(r1: number, c1: number, r2: number, c2: number): void {
@@ -316,20 +316,26 @@ export class KamisadoGame {
     if (p) { p.r = r2; p.c = c2; }
   }
 
-  handleDeadlockCheck(): void {
-    if (!this.canMove(this.turn, this.requiredColor!)) {
-      const blockedPiece = this.findPiece(this.turn, this.requiredColor!);
-      if (!blockedPiece) return;
-
-      const blockedSquareColor = BOARD_COLORS[blockedPiece.r][blockedPiece.c];
-
-      this.turn = this.turn === 'black' ? 'white' : 'black';
-      this.requiredColor = blockedSquareColor;
-
-      if (!this.canMove(this.turn, this.requiredColor)) {
-        const winner: PlayerColor = this.turn === 'black' ? 'white' : 'black';
-        this.handleRoundWin(winner, null);
+  handleDeadlockCheck(
+    lastMover: PlayerColor = this.turn === 'black' ? 'white' : 'black',
+    awardColor: PieceColor | null = this.requiredColor,
+  ): void {
+    // M6/M8: several forced passes can lead to a movable tower. Only a
+    // repeating (player, color) is a deadlock; the last actual mover loses.
+    const visited = new Set<string>();
+    while (this.requiredColor && this.roundState === 'playing' && !this.finished) {
+      const blockedPiece = this.findPiece(this.turn, this.requiredColor);
+      if (!blockedPiece || this.canMove(this.turn, this.requiredColor)) return;
+      const key = `${this.turn}:${this.requiredColor}`;
+      if (visited.has(key)) {
+        const winner: PlayerColor = lastMover === 'black' ? 'white' : 'black';
+        const winningPiece = awardColor ? this.findPiece(winner, awardColor) : null;
+        this.handleRoundWin(winner, winningPiece || null);
+        return;
       }
+      visited.add(key);
+      this.requiredColor = BOARD_COLORS[blockedPiece.r][blockedPiece.c];
+      this.turn = this.turn === 'black' ? 'white' : 'black';
     }
   }
 

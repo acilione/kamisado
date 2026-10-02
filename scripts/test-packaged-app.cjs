@@ -178,14 +178,64 @@ async function main() {
     const freshInvitation = await shell.frameLocator('#game-frame').locator('#share-link').inputValue();
     assert.equal(new URL(freshInvitation).origin, restarted.connectivity.publicOrigin);
     assert.notEqual(new URL(freshInvitation).pathname, new URL(invitation).pathname, 'restarting creates a new room');
-    const localOrigins = new Set([state.localOrigin, state.connectivity.publicOrigin, restarted.localOrigin, restarted.connectivity.publicOrigin]);
+
+    console.log('Packaged smoke: end network hosting and start an offline computer game');
+    await shell.locator('#hosting-settings').click();
+    await shell.locator('#stop-hosting').click();
+    await shell.locator('#confirm-stop').click();
+    await shell.locator('#computer-button').waitFor({ state: 'visible' });
+    assert.equal(await canConnect(restarted.port), false);
+    await shell.locator('#computer-button').click();
+    const solo = shell.frameLocator('#game-frame');
+    await solo.locator('#create-btn').waitFor({ state: 'visible' });
+    const offline = await shell.evaluate(() => window.kamisadoDesktop.getState());
+    assert.equal(offline.status, 'ready');
+    assert.equal(offline.localOnly, true);
+    assert.equal(offline.connectivity.publicOrigin, offline.localOrigin);
+    assert.deepEqual(offline.connectivity.reachableOrigins, [offline.localOrigin]);
+    assert.equal(await solo.locator('#opponent').inputValue(), 'computer', 'the desktop computer entry preselects the opponent');
+    assert.equal(await solo.locator('#ai-level option').count(), 10, 'all ten difficulty levels must be available in the package');
+    await solo.locator('#color-mode').selectOption('white');
+    await solo.locator('#ai-level').selectOption('10');
+    await solo.locator('#create-btn').click();
+    await solo.locator('#computer-status').filter({ hasText: 'Level 10' }).waitFor({ state: 'visible' });
+    await solo.locator('.cell:not([data-r="0"]):not([data-r="7"]) .piece.black').first().waitFor({ state: 'visible' });
+    assert.equal(await solo.locator('#share-link').isVisible(), false, 'computer games must not offer invitations');
+    assert.equal(await solo.locator('#share-qr').isVisible(), false);
+    assert.equal(await shell.locator('#connection-label').textContent(), 'Computer');
+    await shell.screenshot({ path: path.join(screenshots, 'packaged-computer.png') });
+
+    console.log('Packaged smoke: restart offline play and close while the computer thinks');
+    await shell.locator('#hosting-settings').click();
+    assert.equal(await shell.locator('#setup-panel').isVisible(), false, 'offline session settings hide connection controls');
+    assert.equal(await shell.locator('.connection-details').isVisible(), false);
+    await shell.locator('#stop-hosting').click();
+    await shell.locator('#confirm-stop').click();
+    await shell.locator('#computer-button').waitFor({ state: 'visible' });
+    assert.equal(await canConnect(offline.port), false);
+    await shell.locator('#computer-button').click();
+    await solo.locator('#create-btn').waitFor({ state: 'visible' });
+    const offlineRestarted = await shell.evaluate(() => window.kamisadoDesktop.getState());
+    assert.equal(offlineRestarted.localOnly, true);
+    await solo.locator('#color-mode').selectOption('white');
+    await solo.locator('#ai-level').selectOption('10');
+    await solo.locator('#create-btn').click();
+    await solo.locator('#computer-status').filter({ hasText: 'Thinking' }).waitFor({ state: 'visible' });
+    await bounded(app.close(), 10000, 'quit while a packaged computer worker is searching');
+    app = null;
+    assert.equal(await canConnect(offlineRestarted.port), false, 'quitting must close the offline game listener and its search worker');
+
+    const localOrigins = new Set([
+      state.localOrigin, state.connectivity.publicOrigin, restarted.localOrigin, restarted.connectivity.publicOrigin,
+      offline.localOrigin, offlineRestarted.localOrigin,
+    ]);
     const externalRequests = [...requests].filter(value => {
       const url = new URL(value);
       return /^https?:$/.test(url.protocol) && !localOrigins.has(url.origin);
     });
-    assert.deepEqual(externalRequests, [], 'LAN play and board assets must not depend on external websites');
+    assert.deepEqual(externalRequests, [], 'LAN play, computer play, and board assets must not depend on external websites');
     assert.deepEqual(errors, [], 'packaged host and guest must not have uncaught browser errors');
-    console.log('Packaged app checks passed: isolated profile, single window, port fallback, LAN invitation + QR, live connection changes, browser guest move, Stop, and restart.');
+    console.log('Packaged app checks passed: isolated profile, single window, port fallback, LAN invitation + QR, live connection changes, browser guest move, Stop/restart, offline computer move, ten levels, and quit during search.');
   } finally {
     console.log('Packaged smoke: cleanup');
     await bounded(browser?.close() || Promise.resolve(), 5000, 'close guest browser').catch(error => console.warn(error.message));
