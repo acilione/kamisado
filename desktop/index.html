@@ -10,23 +10,23 @@
     <script src="renderer.js" defer></script>
 </head>
 <body>
-    <nav id="play-toolbar" class="hidden" aria-label="Hosting">
+    <nav id="play-toolbar" class="hidden" aria-label="Game session">
         <div class="hosting-label"><strong>Kamisado</strong><span id="connection-label"></span></div>
-        <span class="keep-open">Keep this app open while you play.</span>
+        <span id="session-hint" class="keep-open">Keep this app open while you play.</span>
         <button id="hosting-settings" type="button" aria-controls="launcher" aria-expanded="false">Connection</button>
     </nav>
 
     <main id="launcher">
         <header>
             <p class="eyebrow">Kamisado</p>
-            <h1 id="page-title">Play with a friend</h1>
-            <p id="page-intro" class="intro">Choose a connection, set your rules, and share an invitation. Your friend only needs a browser.</p>
+            <h1 id="page-title">Choose your game</h1>
+            <p id="page-intro" class="intro">Play against the computer, or invite a friend.</p>
         </header>
 
         <section id="status-panel" class="hidden" aria-label="Current connection">
             <div class="status-heading">
                 <span id="status-dot" aria-hidden="true"></span>
-                <div><h2>Hosting is active</h2><p id="status-description"></p></div>
+                <div><h2 id="status-title">Hosting is active</h2><p id="status-description"></p></div>
             </div>
             <div id="warning" class="warning hidden"></div>
             <details class="connection-details">
@@ -40,7 +40,7 @@
             </div>
             <div id="stop-confirmation" class="stop-confirmation hidden" role="group" aria-labelledby="stop-title">
                 <strong id="stop-title">End hosting?</strong>
-                <p>This ends all current games and disconnects your guests.</p>
+                <p id="stop-description">This ends all current games and disconnects your guests.</p>
                 <div class="actions">
                     <button id="cancel-stop" type="button">Keep playing</button>
                     <button id="confirm-stop" class="danger" type="button">End games and stop</button>
@@ -48,10 +48,18 @@
             </div>
         </section>
 
-        <section id="setup-panel" aria-label="Choose a connection">
+        <section id="setup-panel" aria-label="Choose how to play">
             <p id="switch-hint" class="fine-print hidden">You can change the connection without leaving your game. Its invitation will update automatically.</p>
             <div class="quick-actions">
-                <button id="lan-button" class="choice primary-choice" type="button">
+                <button id="computer-button" class="choice primary-choice" type="button">
+                    <span class="choice-icon" aria-hidden="true">◇</span>
+                    <span class="choice-copy">
+                        <span class="choice-title">Play computer</span>
+                        <small>Ten difficulty levels. Play offline, whenever you like.</small>
+                    </span>
+                    <span class="arrow" aria-hidden="true">→</span>
+                </button>
+                <button id="lan-button" class="choice" type="button">
                     <span class="choice-icon" aria-hidden="true">⌂</span>
                     <span class="choice-copy">
                         <span class="choice-title">Same Wi-Fi network</span>
@@ -102,7 +110,7 @@
                     <div class="local-address"><span>Local server</span><code id="local-origin">Not running</code></div>
                 </div>
             </details>
-            <p class="setup-note">One person hosts. The other opens the invitation on their phone or computer.</p>
+            <p class="setup-note">Playing with a friend? They join your invitation in a browser.</p>
         </section>
 
         <p id="busy-message" class="notice hidden" role="status"></p>

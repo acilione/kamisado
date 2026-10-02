@@ -57,6 +57,28 @@ async function main(): Promise<void> {
         assert.equal((await first.socket.emitWithAck('checkActiveSession', { playerId: 'host-player' })).active, true,
             'changing the invitation origin must preserve the running game');
 
+        const computerPlayer = await connect(server.port);
+        sockets.push(computerPlayer.socket);
+        const computerMoved = new Promise<void>((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('Source-mode computer worker did not move')), 6000);
+            computerPlayer.socket.on('gameStateUpdate', state => {
+                if (state.turn === 'white' && state.requiredColor) {
+                    clearTimeout(timeout);
+                    resolve();
+                }
+            });
+        });
+        const solo = await computerPlayer.socket.emitWithAck('createGame', {
+            matchType: '1', timer: '0', colorMode: 'white', playerId: 'computer-player', opponent: 'computer', aiLevel: 1,
+        });
+        assert.equal(solo.success, true);
+        await computerMoved;
+        await computerPlayer.socket.emitWithAck('leaveComputerGame', { gameId: solo.gameId! });
+        const pendingSolo = await computerPlayer.socket.emitWithAck('createGame', {
+            matchType: '1', timer: '0', colorMode: 'white', playerId: 'computer-player', opponent: 'computer', aiLevel: 10,
+        });
+        assert(pendingSolo.gameState?.computer?.thinking, 'Close is exercised while a worker is searching');
+
         const oldPort = server.port;
         const shutdownEvents: string[][] = [[], []];
         const disconnected = [first.socket, second.socket].map((socket, index) => {
@@ -80,6 +102,7 @@ async function main(): Promise<void> {
         sockets.push(restarted.socket);
         assert.deepEqual(restarted.config, { publicOrigin: null });
         assert.equal((await restarted.socket.emitWithAck('checkActiveSession', { playerId: 'host-player' })).active, false);
+        assert.equal((await restarted.socket.emitWithAck('checkActiveSession', { playerId: 'computer-player' })).active, false);
         assert.equal((await restarted.socket.emitWithAck('joinGame', { gameId: created.gameId!, playerId: 'guest-player' })).success, false);
         assert.equal((await restarted.socket.emitWithAck('createGame', {
             matchType: '1', timer: '0', colorMode: 'black', playerId: 'host-player',

@@ -4,6 +4,7 @@ export interface DesktopState {
     status: 'idle' | 'starting' | 'ready' | 'error';
     localOrigin: string;
     port: number;
+    localOnly: boolean;
     connectivity: ConnectivityDetails | null;
     hasSavedNgrokToken: boolean;
     hasSessionNgrokToken: boolean;
@@ -13,6 +14,7 @@ export interface DesktopState {
 
 export interface StartHostingRequest {
     mode: ConnectivityMode;
+    localOnly?: boolean;
     authToken?: string;
     rememberAuthToken?: boolean;
     advertisedOrigin?: string;

@@ -1,5 +1,6 @@
 import type { GameState, PlayerColor, PieceColor } from '../shared/types.js';
 import { BOARD_COLORS, STANDARD_LAYOUT } from '../shared/constants.js';
+import { AI_LEVELS, isAiLevel } from '../shared/ai-levels.js';
 import { COLOR_SYMBOLS, createColorSymbol } from './symbols.js';
 import { createRealisticTower, createRealisticSymbol, REALISTIC_COLORS } from './realistic-art.js';
 import { RealisticBoard3D } from './board-3d.js';
@@ -31,6 +32,32 @@ const screens = {
 const boardEl = document.getElementById('board')!;
 const turnIndicatorEl = document.getElementById('turn-indicator')!;
 const messageEl = document.getElementById('message')!;
+const opponentSelect = document.getElementById('opponent') as HTMLSelectElement;
+const aiLevelSelect = document.getElementById('ai-level') as HTMLSelectElement;
+const leaveComputerBtn = document.getElementById('leave-computer-btn') as HTMLButtonElement;
+let leavingComputer = false;
+for (const profile of AI_LEVELS) {
+    aiLevelSelect.add(new Option(`${profile.level} · ${profile.name}`, String(profile.level)));
+}
+aiLevelSelect.value = '5';
+try {
+    const savedLevel = Number(localStorage.getItem('kamisado_aiLevel'));
+    if (isAiLevel(savedLevel)) aiLevelSelect.value = String(savedLevel);
+} catch { /* Preferences are optional. */ }
+if (new URLSearchParams(window.location.search).get('opponent') === 'computer') {
+    opponentSelect.value = 'computer';
+}
+function updateOpponentOptions(): void {
+    const solo = opponentSelect.value === 'computer';
+    document.getElementById('computer-options')!.classList.toggle('hidden', !solo);
+    document.getElementById('create-btn')!.textContent = solo ? 'Play computer' : 'Create Game';
+}
+opponentSelect.addEventListener('change', updateOpponentOptions);
+aiLevelSelect.addEventListener('change', () => {
+    try { localStorage.setItem('kamisado_aiLevel', aiLevelSelect.value); } catch { /* Session preference. */ }
+});
+updateOpponentOptions();
+leaveComputerBtn.addEventListener('click', leaveComputerGame);
 const invitation = new InvitationPanel(window.__KAMISADO_RUNTIME_CONFIG__?.publicOrigin || window.location.origin);
 socket.on('runtimeConfig', config => {
     window.__KAMISADO_RUNTIME_CONFIG__ = config;
@@ -207,6 +234,8 @@ socket.on('connect', () => {
 document.getElementById('create-btn')!.addEventListener('click', () => {
     if (!connectionReady || hostStopped) return;
     socket.emit('createGame', {
+        opponent: opponentSelect.value === 'computer' ? 'computer' : 'human',
+        ...(opponentSelect.value === 'computer' ? { aiLevel: Number(aiLevelSelect.value) } : {}),
         matchType: (document.getElementById('match-type') as HTMLSelectElement).value,
         timer: (document.getElementById('timer') as HTMLSelectElement).value,
         colorMode: (document.getElementById('color-mode') as HTMLSelectElement).value,
@@ -264,6 +293,44 @@ function currentJoinResponse(): (response: JoinResponse) => void {
     };
 }
 
+function returnToMenu(): void {
+    gameId = null;
+    gameState = null;
+    playerColor = null;
+    isSpectator = false;
+    selectedPiece = null;
+    invitation.setGame(null);
+    dispose3DBoard();
+    screens.game.classList.add('hidden');
+    screens.menu.classList.remove('hidden');
+    if (disconnectInterval) { clearInterval(disconnectInterval); disconnectInterval = null; }
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    if (chessClockInterval) { clearInterval(chessClockInterval); chessClockInterval = null; }
+    timerEndTime = null;
+    document.getElementById('timer-container')?.remove();
+    messageEl.textContent = '';
+    window.history.replaceState({}, '', opponentSelect.value === 'computer' ? '/?opponent=computer' : '/');
+    refreshConnectionState();
+}
+
+function leaveComputerGame(): void {
+    if (!gameState?.computer || !gameId || !connectionReady || hostStopped || leavingComputer) return;
+    leavingComputer = true;
+    leaveComputerBtn.disabled = true;
+    const room = gameId;
+    const version = connectionVersion;
+    socket.timeout(5000).emit('leaveComputerGame', { gameId: room }, (error, response) => {
+        leavingComputer = false;
+        if (version !== connectionVersion || room !== gameId) return;
+        if (error || !response?.success) {
+            updateUI();
+            alert(response?.message || 'Could not end the game. Please try again.');
+            return;
+        }
+        returnToMenu();
+    });
+}
+
 function handleJoinResponse(response: JoinResponse): void {
     if (hostStopped || !transportConnected) return;
     if (response.success) {
@@ -273,6 +340,12 @@ function handleJoinResponse(response: JoinResponse): void {
         playerColor = response.color || null;
         gameState = response.gameState!;
         isSpectator = response.isSpectator === true;
+        leavingComputer = false;
+        if (gameState.computer) {
+            opponentSelect.value = 'computer';
+            aiLevelSelect.value = String(gameState.computer.level);
+            updateOpponentOptions();
+        }
 
         screens.menu.classList.add('hidden');
         screens.game.classList.remove('hidden');
@@ -308,24 +381,8 @@ function handleJoinResponse(response: JoinResponse): void {
     } else {
         // A missing/expired invitation is a healthy connection to an unavailable
         // room. Return to a usable menu instead of retaining a frozen game.
-        gameId = null;
-        gameState = null;
-        playerColor = null;
-        isSpectator = false;
-        selectedPiece = null;
-        invitation.setGame(null);
-        dispose3DBoard();
-        screens.game.classList.add('hidden');
-        screens.menu.classList.remove('hidden');
-        if (disconnectInterval) { clearInterval(disconnectInterval); disconnectInterval = null; }
-        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
-        if (chessClockInterval) { clearInterval(chessClockInterval); chessClockInterval = null; }
-        timerEndTime = null;
-        document.getElementById('timer-container')?.remove();
-        messageEl.textContent = '';
-        window.history.replaceState({}, '', '/');
         connectionReady = true;
-        refreshConnectionState();
+        returnToMenu();
         alert(response.message || 'This invitation is no longer available.');
     }
 }
@@ -586,6 +643,14 @@ function handleCellClick(r: number, c: number): void {
 
 function updateUI(): void {
     if (!gameState) return;
+    const computer = gameState.computer;
+    const computerStatus = document.getElementById('computer-status')!;
+    computerStatus.classList.toggle('hidden', !computer);
+    computerStatus.textContent = computer
+        ? `Computer · Level ${computer.level} · ${AI_LEVELS[computer.level - 1]?.name || ''}${computer.thinking && connectionReady && !hostStopped ? ' · Thinking…' : ''}`
+        : '';
+    document.getElementById('computer-controls')!.classList.toggle('hidden', !computer || gameState.finished);
+    leaveComputerBtn.disabled = !connectionReady || hostStopped || leavingComputer;
     if (!connectionReady || hostStopped) {
         invitation.setGame(null);
         turnIndicatorEl.textContent = hostStopped ? 'Game stopped' : 'Reconnecting…';
@@ -597,7 +662,7 @@ function updateUI(): void {
         document.getElementById('timer-container')?.remove();
         return;
     }
-    invitation.setGame(gameId, gameState.roundState === 'waiting_start' && !isSpectator);
+    invitation.setGame(computer ? null : gameId, gameState.roundState === 'waiting_start' && !isSpectator);
 
     turnIndicatorEl.innerHTML = '';
 
@@ -618,6 +683,7 @@ function updateUI(): void {
         btn.textContent = 'Back to Main Menu';
         btn.style.backgroundColor = '#444';
         btn.onclick = () => {
+            if (gameState?.computer) { leaveComputerGame(); return; }
             localStorage.removeItem('kamisado_playerId');
             window.location.href = '/';
         };

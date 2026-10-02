@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Play Kamisado online in real time with a friend—no account required.">
+    <meta name="description" content="Play Kamisado against the computer at ten difficulty levels, or with a friend—no account required.">
     <meta name="theme-color" content="#15171c">
     <title>Kamisado Online</title>
     <link rel="stylesheet" href="/style.css">
@@ -23,6 +23,18 @@
             <p class="tagline">Color decides your next move.</p>
             <div class="menu-group">
                 <h3>Create Game</h3>
+                <label for="opponent">Opponent:
+                    <select id="opponent">
+                        <option value="human">A friend</option>
+                        <option value="computer">Computer</option>
+                    </select>
+                </label>
+                <div id="computer-options" class="hidden">
+                    <label for="ai-level">Difficulty:
+                        <select id="ai-level" aria-describedby="ai-level-help"></select>
+                    </label>
+                    <p id="ai-level-help" class="option-help">Ten levels, from forgiving to challenging. Works offline in the desktop app.</p>
+                </div>
                 <div class="form-group">
                     <label for="match-type">Match Length:</label>
                     <select id="match-type">
@@ -96,7 +108,7 @@
                         <li>Towers move <strong>forward only</strong> &mdash; straight or diagonally.</li>
                         <li>Towers cannot jump over other pieces.</li>
                         <li>After a move, your opponent <strong>must</strong> move the tower whose color matches the square you landed on.</li>
-                        <li>If that tower is blocked and cannot move, the turn passes back. If both are blocked (deadlock), the last player who moved wins the round.</li>
+                        <li>If the required tower cannot move, pass the turn using the color of its square. Continue until a tower can move. If the same blocked towers repeat forever (deadlock), the last player who moved loses the round.</li>
                     </ul>
 
                     <h4 style="margin:12px 0 6px;">Rounds & Scoring</h4>
@@ -131,6 +143,7 @@
             <div id="status-bar">
                 <div id="turn-indicator" aria-live="polite" aria-atomic="true">Waiting...</div>
                 <div id="message"></div>
+                <div id="computer-status" class="hidden" role="status" aria-live="polite"></div>
             </div>
             <details id="invite-panel" class="hidden">
                 <summary id="invite-title">Invite a friend</summary>
@@ -176,6 +189,9 @@
                     <p id="symbol-key-help">Match the square's shape to the shape inside a tower.</p>
                     <ul id="symbol-legend" aria-label="Color and symbol key"></ul>
                 </details>
+            </div>
+            <div id="computer-controls" class="hidden">
+                <button id="leave-computer-btn" type="button">End game</button>
             </div>
         </div>
     </div>

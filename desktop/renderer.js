@@ -12,6 +12,7 @@ const quickActions = document.querySelector('.quick-actions');
 const errorPanel = document.getElementById('error-panel');
 const onlineButton = document.getElementById('online-button');
 const lanButton = document.getElementById('lan-button');
+const computerButton = document.getElementById('computer-button');
 const tokenContinue = document.getElementById('token-continue');
 const stopConfirmation = document.getElementById('stop-confirmation');
 let currentState = null;
@@ -41,7 +42,7 @@ function showGame() {
     // Keep the same frame alive when changing connectivity or visiting settings.
     if (gameFrame.dataset.origin !== currentState.localOrigin) {
         gameFrame.dataset.origin = currentState.localOrigin;
-        gameFrame.src = currentState.localOrigin;
+        gameFrame.src = currentState.localOrigin + (currentState.localOnly ? '/?opponent=computer' : '');
     }
     launcher.classList.add('hidden');
     gamePanel.classList.remove('hidden');
@@ -69,7 +70,7 @@ function showLocalError(message) {
 
 async function startHosting(request) {
     if (busy) return;
-    setBusy(true);
+    setBusy(true, request.localOnly ? 'Preparing your game…' : 'Connecting…');
     errorPanel.classList.add('hidden');
     try {
         const state = await api.startHosting(request);
@@ -115,6 +116,7 @@ function renderOrigins(origins) {
 function render(state) {
     currentState = state;
     const ready = state.status === 'ready' && Boolean(state.connectivity);
+    const offline = ready && state.localOnly;
     const hasToken = state.hasSavedNgrokToken || state.hasSessionNgrokToken;
     document.getElementById('local-origin').textContent = state.localOrigin || 'Not running';
     document.getElementById('port-description').textContent = state.port
@@ -143,17 +145,32 @@ function render(state) {
     errorPanel.textContent = state.error || '';
     statusPanel.classList.toggle('hidden', !ready);
     toolbar.classList.toggle('hidden', !ready);
-    document.getElementById('switch-hint').classList.toggle('hidden', !ready);
-    document.getElementById('page-title').textContent = ready ? 'Connection settings' : 'Play with a friend';
+    document.getElementById('setup-panel').classList.toggle('hidden', offline);
+    computerButton.classList.toggle('hidden', ready);
+    document.querySelector('.connection-details').classList.toggle('hidden', offline);
+    document.getElementById('switch-hint').classList.toggle('hidden', !ready || offline);
+    settingsButton.textContent = offline ? 'Session' : 'Connection';
+    document.getElementById('session-hint').textContent = offline
+        ? 'Offline play' : 'Keep this app open while you play.';
+    document.getElementById('status-title').textContent = offline ? 'Your computer game' : 'Hosting is active';
+    document.getElementById('stop-hosting').textContent = offline ? 'End session' : 'Stop hosting';
+    document.getElementById('stop-title').textContent = offline ? 'End this session?' : 'End hosting?';
+    document.getElementById('stop-description').textContent = offline
+        ? 'Your current game will end. You can start another game from the welcome screen.'
+        : 'This ends all current games and disconnects your guests.';
+    document.getElementById('confirm-stop').textContent = offline ? 'End session' : 'End games and stop';
+    document.getElementById('page-title').textContent = ready
+        ? (offline ? 'Your session' : 'Connection settings') : 'Choose your game';
     document.getElementById('page-intro').textContent = ready
-        ? 'Your game stays open while you manage its connection.'
-        : 'Choose a connection, set your rules, and share an invitation. Your friend only needs a browser.';
+        ? (offline ? 'Return to the board, or finish and choose a new game.' : 'Your game stays open while you manage its connection.')
+        : 'Play against the computer, or invite a friend.';
 
     if (ready) {
         hideTokenSetup();
         const online = state.connectivity.mode === 'ngrok';
-        document.getElementById('connection-label').textContent = online ? 'Internet' : 'Same network';
-        document.getElementById('status-description').textContent = online
+        document.getElementById('connection-label').textContent = offline ? 'Computer' : (online ? 'Internet' : 'Same network');
+        document.getElementById('status-description').textContent = offline
+            ? 'This session stays on this computer. To play across devices, end it and choose a connection.' : online
             ? 'Friends can join over the Internet.'
             : 'Friends on your network can join from their browser.';
         const warning = document.getElementById('warning');
@@ -175,6 +192,7 @@ onlineButton.addEventListener('click', () => {
         showTokenSetup();
     }
 });
+computerButton.addEventListener('click', () => startHosting({ mode: 'direct', localOnly: true }));
 lanButton.addEventListener('click', () => startHosting({
     mode: 'direct',
     advertisedOrigin: document.getElementById('advertised-origin').value,
@@ -224,15 +242,15 @@ document.getElementById('cancel-stop').addEventListener('click', () => {
 });
 document.getElementById('confirm-stop').addEventListener('click', async () => {
     if (busy) return;
-    setBusy(true, 'Stopping hosting…');
+    setBusy(true, currentState?.localOnly ? 'Ending your session…' : 'Stopping hosting…');
     try {
         render(await api.stopHosting());
-        lanButton.focus();
+        computerButton.focus();
     } catch (error) {
         showLocalError(error.message || String(error));
     } finally {
         setBusy(false);
-        if (currentState?.status !== 'ready') lanButton.focus();
+        if (currentState?.status !== 'ready') computerButton.focus();
     }
 });
 document.querySelectorAll('[data-external]').forEach(button => {
