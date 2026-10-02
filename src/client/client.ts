@@ -3,6 +3,7 @@ import { BOARD_COLORS, STANDARD_LAYOUT } from '../shared/constants.js';
 import { COLOR_SYMBOLS, createColorSymbol } from './symbols.js';
 import { createRealisticTower, createRealisticSymbol, REALISTIC_COLORS } from './realistic-art.js';
 import { RealisticBoard3D } from './board-3d.js';
+import { InvitationPanel } from './invitation.js';
 
 const socket = io();
 
@@ -12,6 +13,10 @@ let playerColor: PlayerColor | null = null;
 let gameState: GameState | null = null;
 let selectedPiece: { r: number; c: number } | null = null;
 let isSpectator = false;
+let connectionReady = false;
+let transportConnected = false;
+let hostStopped = false;
+let connectionVersion = 0;
 const playerId = getPlayerId();
 let timerInterval: ReturnType<typeof setInterval> | null = null;
 let timerEndTime: number | null = null;
@@ -26,6 +31,11 @@ const screens = {
 const boardEl = document.getElementById('board')!;
 const turnIndicatorEl = document.getElementById('turn-indicator')!;
 const messageEl = document.getElementById('message')!;
+const invitation = new InvitationPanel(window.__KAMISADO_RUNTIME_CONFIG__?.publicOrigin || window.location.origin);
+socket.on('runtimeConfig', config => {
+    window.__KAMISADO_RUNTIME_CONFIG__ = config;
+    invitation.setOrigin(config.publicOrigin || window.location.origin);
+});
 const symbolToggles = document.querySelectorAll<HTMLInputElement>('.symbol-mode-toggle');
 const symbolLegend = document.getElementById('symbol-legend')!;
 const symbolKey = document.getElementById('symbol-key') as HTMLDetailsElement;
@@ -137,15 +147,57 @@ function getGameIdFromUrl(): string | null {
     return match ? match[1] : null;
 }
 
-// Initial check for active session or URL-based join
+function refreshConnectionState(): void {
+    const notice = document.getElementById('connection-notice')!;
+    notice.classList.toggle('hidden', connectionReady && !hostStopped);
+    notice.textContent = hostStopped
+        ? 'The host stopped this game. Ask them for a new invitation.'
+        : 'Connection lost. Reconnecting to the host…';
+    for (const id of ['create-btn', 'join-btn']) {
+        (document.getElementById(id) as HTMLButtonElement).disabled = !connectionReady || hostStopped;
+    }
+    selectedPiece = null;
+    if (gameState) {
+        renderBoard();
+        updateUI();
+    }
+}
+
+socket.on('hostStopped', () => {
+    hostStopped = true;
+    connectionReady = false;
+    connectionVersion++;
+    if (disconnectInterval) { clearInterval(disconnectInterval); disconnectInterval = null; }
+    refreshConnectionState();
+});
+
+socket.on('disconnect', () => {
+    transportConnected = false;
+    connectionReady = false;
+    connectionVersion++;
+    if (disconnectInterval) { clearInterval(disconnectInterval); disconnectInterval = null; }
+    refreshConnectionState();
+});
+
+// Restore server-authoritative state before accepting actions after reconnecting.
 socket.on('connect', () => {
+    transportConnected = true;
+    if (hostStopped) return;
+    const version = ++connectionVersion;
+    connectionReady = false;
     socket.emit('checkActiveSession', { playerId }, (response) => {
+        if (version !== connectionVersion || hostStopped) return;
         if (response.active) {
             handleJoinResponse(response);
         } else {
             const urlGameId = getGameIdFromUrl();
             if (urlGameId) {
-                socket.emit('joinGame', { gameId: urlGameId, playerId }, handleJoinResponse);
+                socket.emit('joinGame', { gameId: urlGameId, playerId }, result => {
+                    if (version === connectionVersion && !hostStopped) handleJoinResponse(result);
+                });
+            } else {
+                connectionReady = true;
+                refreshConnectionState();
             }
         }
     });
@@ -153,20 +205,22 @@ socket.on('connect', () => {
 
 // Event Listeners
 document.getElementById('create-btn')!.addEventListener('click', () => {
+    if (!connectionReady || hostStopped) return;
     socket.emit('createGame', {
         matchType: (document.getElementById('match-type') as HTMLSelectElement).value,
         timer: (document.getElementById('timer') as HTMLSelectElement).value,
         colorMode: (document.getElementById('color-mode') as HTMLSelectElement).value,
         positionMode: (document.getElementById('position-mode') as HTMLSelectElement).value,
         playerId,
-    }, handleJoinResponse);
+    }, currentJoinResponse());
 });
 
 document.getElementById('join-btn')!.addEventListener('click', () => {
+    if (!connectionReady || hostStopped) return;
     const rawValue = (document.getElementById('join-id') as HTMLInputElement).value.trim();
     const id = rawValue.match(/(?:\/game\/)?([a-f0-9]{12})\/?$/i)?.[1];
     if (id) {
-        socket.emit('joinGame', { gameId: id, playerId }, handleJoinResponse);
+        socket.emit('joinGame', { gameId: id, playerId }, currentJoinResponse());
     } else {
         alert('Enter a valid game ID or invitation link.');
     }
@@ -203,8 +257,18 @@ interface JoinResponse {
     roundTimerEndTime?: number | null;
 }
 
+function currentJoinResponse(): (response: JoinResponse) => void {
+    const version = connectionVersion;
+    return response => {
+        if (version === connectionVersion) handleJoinResponse(response);
+    };
+}
+
 function handleJoinResponse(response: JoinResponse): void {
+    if (hostStopped || !transportConnected) return;
     if (response.success) {
+        connectionReady = true;
+        refreshConnectionState();
         gameId = response.gameId!;
         playerColor = response.color || null;
         gameState = response.gameState!;
@@ -216,34 +280,15 @@ function handleJoinResponse(response: JoinResponse): void {
         renderBoard();
         updateUI();
 
-        // Build shareable URL
-        const shareOrigin = window.__KAMISADO_RUNTIME_CONFIG__?.publicOrigin || window.location.origin;
-        const shareUrl = `${shareOrigin}/game/${gameId}`;
-
         if (isSpectator) {
-            messageEl.innerHTML = `<strong>👁 Spectating</strong> - Watch only mode`;
+            messageEl.textContent = 'Spectating — watch only';
             messageEl.style.color = '#ffa500';
         } else if (response.active && gameState!.roundState !== 'waiting_start') {
             messageEl.textContent = `Session restored. You are ${playerColor!.toUpperCase()}.`;
             messageEl.style.color = 'white';
         } else {
-            // Show share link for new games AND restored lobbies (waiting_start)
-            messageEl.innerHTML = `
-                <span>Share: <code id="share-url" style="background:#333;padding:2px 6px;border-radius:3px;">${shareUrl}</code></span>
-                <button id="copy-link-btn" style="margin-left:10px;padding:5px 10px;font-size:0.9rem;">Copy</button>
-            `;
+            messageEl.textContent = `You are ${playerColor!.toUpperCase()}.`;
             messageEl.style.color = 'white';
-
-            // Add copy functionality
-            document.getElementById('copy-link-btn')!.onclick = () => {
-                navigator.clipboard.writeText(shareUrl).then(() => {
-                    document.getElementById('copy-link-btn')!.textContent = 'Copied!';
-                    setTimeout(() => {
-                        const btn = document.getElementById('copy-link-btn');
-                        if (btn) btn.textContent = 'Copy';
-                    }, 2000);
-                });
-            };
         }
 
         // Update browser URL for direct links
@@ -261,7 +306,27 @@ function handleJoinResponse(response: JoinResponse): void {
         }
 
     } else {
-        alert(response.message);
+        // A missing/expired invitation is a healthy connection to an unavailable
+        // room. Return to a usable menu instead of retaining a frozen game.
+        gameId = null;
+        gameState = null;
+        playerColor = null;
+        isSpectator = false;
+        selectedPiece = null;
+        invitation.setGame(null);
+        dispose3DBoard();
+        screens.game.classList.add('hidden');
+        screens.menu.classList.remove('hidden');
+        if (disconnectInterval) { clearInterval(disconnectInterval); disconnectInterval = null; }
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        if (chessClockInterval) { clearInterval(chessClockInterval); chessClockInterval = null; }
+        timerEndTime = null;
+        document.getElementById('timer-container')?.remove();
+        messageEl.textContent = '';
+        window.history.replaceState({}, '', '/');
+        connectionReady = true;
+        refreshConnectionState();
+        alert(response.message || 'This invitation is no longer available.');
     }
 }
 
@@ -276,6 +341,7 @@ socket.on('lobbyExpired', () => {
     screens.game.classList.add('hidden');
     screens.menu.classList.remove('hidden');
     gameId = null;
+    invitation.setGame(null);
     playerColor = null;
     gameState = null;
     messageEl.textContent = '';
@@ -356,6 +422,7 @@ socket.on('sessionTakenOver', () => {
     document.title = "Inactive - Kamisado";
     messageEl.textContent = "Session active elsewhere.";
     gameId = null;
+    invitation.setGame(null);
 });
 
 socket.on('gameStateUpdate', (newState) => {
@@ -406,7 +473,7 @@ function renderBoard(): void {
     if (!gameState) return;
     boardEl.innerHTML = '';
 
-    const canInteract = !isSpectator &&
+    const canInteract = connectionReady && !hostStopped && !isSpectator &&
         !gameState.finished &&
         gameState.roundState === 'playing' &&
         gameState.turn === playerColor;
@@ -490,7 +557,7 @@ function renderBoard(): void {
 }
 
 function handleCellClick(r: number, c: number): void {
-    if (!gameState || !gameId || isSpectator || gameState.finished ||
+    if (!connectionReady || hostStopped || !gameState || !gameId || isSpectator || gameState.finished ||
         gameState.roundState !== 'playing' || gameState.turn !== playerColor) return;
 
     const piece = gameState.board[r][c];
@@ -519,6 +586,18 @@ function handleCellClick(r: number, c: number): void {
 
 function updateUI(): void {
     if (!gameState) return;
+    if (!connectionReady || hostStopped) {
+        invitation.setGame(null);
+        turnIndicatorEl.textContent = hostStopped ? 'Game stopped' : 'Reconnecting…';
+        turnIndicatorEl.className = '';
+        messageEl.textContent = '';
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        if (chessClockInterval) { clearInterval(chessClockInterval); chessClockInterval = null; }
+        timerEndTime = null;
+        document.getElementById('timer-container')?.remove();
+        return;
+    }
+    invitation.setGame(gameId, gameState.roundState === 'waiting_start' && !isSpectator);
 
     turnIndicatorEl.innerHTML = '';
 
@@ -559,6 +638,7 @@ function updateUI(): void {
         btn.textContent = 'Cancel Game';
         btn.style.backgroundColor = '#cc0000';
         btn.onclick = () => {
+            if (!connectionReady || hostStopped) return;
             if (confirm('Are you sure you want to cancel the lobby?')) {
                 socket.emit('cancelGame', { gameId: gameId! }, (res) => {
                     if (!res.success) alert(res.message || 'Failed to cancel');
@@ -588,6 +668,7 @@ function updateUI(): void {
             btn.id = 'next-round-btn';
             btn.textContent = 'Ready for Next Round...';
             btn.onclick = () => {
+                if (!connectionReady || hostStopped) return;
                 socket.emit('confirmNextRound', { gameId: gameId! });
                 btn.disabled = true;
                 updateTimerBtn();
@@ -620,6 +701,7 @@ function updateUI(): void {
             const leftBtn = document.createElement('button');
             leftBtn.textContent = 'Fill from Left';
             leftBtn.onclick = () => {
+                if (!connectionReady || hostStopped) return;
                 socket.emit('fillChoice', { gameId: gameId!, direction: 'left' });
             };
             btnRow.appendChild(leftBtn);
@@ -627,6 +709,7 @@ function updateUI(): void {
             const rightBtn = document.createElement('button');
             rightBtn.textContent = 'Fill from Right';
             rightBtn.onclick = () => {
+                if (!connectionReady || hostStopped) return;
                 socket.emit('fillChoice', { gameId: gameId!, direction: 'right' });
             };
             btnRow.appendChild(rightBtn);

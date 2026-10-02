@@ -31,12 +31,12 @@ module.exports = {
     {
       name: '@electron-forge/maker-deb',
       platforms: ['linux'],
-      config: {},
+      config: { options: { bin: 'Kamisado', categories: ['Game', 'BoardGame'] } },
     },
     {
       name: '@electron-forge/maker-rpm',
       platforms: ['linux'],
-      config: {},
+      config: { options: { bin: 'Kamisado', categories: ['Game', 'BoardGame'] } },
     },
   ],
 };

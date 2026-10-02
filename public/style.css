@@ -632,3 +632,112 @@ select:focus-visible {
 @media (prefers-reduced-motion: reduce) {
     .piece.playable { animation: none; }
 }
+
+/* Invitations stay open in the lobby and fold away when play begins. */
+#invite-panel {
+    width: 560px;
+    max-width: 100%;
+    margin: 0 auto 16px;
+    padding: 0 16px;
+    border: 1px solid #ffffff18;
+    border-radius: 12px;
+    background: #20232abf;
+    text-align: left;
+}
+
+#invite-panel summary {
+    padding: 12px 0;
+    color: #d8dbe3;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+#invite-panel summary:focus-visible {
+    outline: 2px solid #ffd34e;
+    outline-offset: 3px;
+    border-radius: 3px;
+}
+
+.invite-content {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-bottom: 16px;
+}
+
+.invite-copy {
+    flex: 1;
+    min-width: 0;
+}
+
+#invite-help {
+    margin: 0 0 14px;
+    color: #c7cad3;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.invite-copy label {
+    display: block;
+    margin-bottom: 6px;
+    color: #c7cad3;
+    font-size: 0.75rem;
+}
+
+.invite-link-row {
+    display: flex;
+    gap: 6px;
+}
+
+#share-link {
+    width: 100%;
+    min-width: 0;
+    padding: 9px;
+    border: 1px solid #555b68;
+    border-radius: 5px;
+    background: #15171c;
+    color: #ffffff;
+    font: inherit;
+    font-size: 0.8rem;
+}
+
+#share-btn {
+    width: auto;
+    margin: 0;
+    flex-shrink: 0;
+    padding: 9px 12px;
+    background: #404653;
+    font-size: 0.8rem;
+}
+
+#share-btn:hover { background: #505968; }
+
+#share-feedback {
+    min-height: 2.4em;
+    margin: 7px 0 0;
+    color: #d8dbe3;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+#share-qr {
+    width: 144px;
+    height: 144px;
+    flex-shrink: 0;
+    border-radius: 7px;
+    background: white;
+}
+
+@media (max-width: 520px) {
+    #share-link { font-size: 16px; }
+    .invite-content { flex-direction: column; gap: 2px; }
+    .invite-copy { width: 100%; }
+}
+#connection-notice {
+    padding: 12px 16px;
+    border: 1px solid #ffffff28;
+    border-radius: 8px;
+    background: #292d36;
+    color: #f1dfb6;
+    line-height: 1.5;
+}

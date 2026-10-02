@@ -4,45 +4,76 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; frame-src http://127.0.0.1:*; object-src 'none'; base-uri 'none'">
     <title>Kamisado</title>
     <link rel="stylesheet" href="style.css">
     <script src="renderer.js" defer></script>
 </head>
 <body>
-    <main>
+    <nav id="play-toolbar" class="hidden" aria-label="Hosting">
+        <div class="hosting-label"><strong>Kamisado</strong><span id="connection-label"></span></div>
+        <span class="keep-open">Keep this app open while you play.</span>
+        <button id="hosting-settings" type="button" aria-controls="launcher" aria-expanded="false">Connection</button>
+    </nav>
+
+    <main id="launcher">
         <header>
             <p class="eyebrow">Kamisado</p>
-            <h1>Create a game</h1>
-            <p class="intro">Choose where the other player is. We will handle the rest.</p>
+            <h1 id="page-title">Play with a friend</h1>
+            <p id="page-intro" class="intro">Choose a connection, set your rules, and share an invitation. Your friend only needs a browser.</p>
         </header>
 
-        <section id="setup-panel">
-            <div class="quick-actions">
-                <button id="online-button" class="choice primary-choice" type="button">
-                    <span class="choice-icon">◎</span>
-                    <span class="choice-copy">
-                        <span class="choice-title">Play online <em>Recommended</em></span>
-                        <small id="online-description">Works from any network. The other player joins from a browser.</small>
-                    </span>
-                    <span class="arrow">→</span>
-                </button>
+        <section id="status-panel" class="hidden" aria-label="Current connection">
+            <div class="status-heading">
+                <span id="status-dot" aria-hidden="true"></span>
+                <div><h2>Hosting is active</h2><p id="status-description"></p></div>
+            </div>
+            <div id="warning" class="warning hidden"></div>
+            <details class="connection-details">
+                <summary>Connection details</summary>
+                <p>These addresses open the menu. Share the invitation inside your game to bring your friend straight to the board.</p>
+                <div id="origins"></div>
+            </details>
+            <div class="actions">
+                <button id="return-to-game" class="primary" type="button">Back to game</button>
+                <button id="stop-hosting" type="button">Stop hosting</button>
+            </div>
+            <div id="stop-confirmation" class="stop-confirmation hidden" role="group" aria-labelledby="stop-title">
+                <strong id="stop-title">End hosting?</strong>
+                <p>This ends all current games and disconnects your guests.</p>
+                <div class="actions">
+                    <button id="cancel-stop" type="button">Keep playing</button>
+                    <button id="confirm-stop" class="danger" type="button">End games and stop</button>
+                </div>
+            </div>
+        </section>
 
-                <button id="lan-button" class="choice" type="button">
-                    <span class="choice-icon">⌂</span>
+        <section id="setup-panel" aria-label="Choose a connection">
+            <p id="switch-hint" class="fine-print hidden">You can change the connection without leaving your game. Its invitation will update automatically.</p>
+            <div class="quick-actions">
+                <button id="lan-button" class="choice primary-choice" type="button">
+                    <span class="choice-icon" aria-hidden="true">⌂</span>
                     <span class="choice-copy">
                         <span class="choice-title">Same Wi-Fi network</span>
-                        <small>No account needed. Ideal when you are in the same place.</small>
+                        <small>No account or Internet needed. Connect both devices to the same network.</small>
                     </span>
-                    <span class="arrow">→</span>
+                    <span class="arrow" aria-hidden="true">→</span>
+                </button>
+                <button id="online-button" class="choice" type="button">
+                    <span class="choice-icon" aria-hidden="true">◎</span>
+                    <span class="choice-copy">
+                        <span class="choice-title">Play over the Internet</span>
+                        <small id="online-description">For friends elsewhere. Requires a free ngrok account on this computer.</small>
+                    </span>
+                    <span class="arrow" aria-hidden="true">→</span>
                 </button>
             </div>
 
             <div id="token-setup" class="token-card hidden">
                 <button id="token-back" class="back" type="button">← Back</button>
-                <p class="step-label">First-time setup</p>
-                <h2>Connect ngrok for free</h2>
-                <p>This is only needed once to create a secure Internet link.</p>
+                <p class="step-label">Internet connection</p>
+                <h2>Connect ngrok</h2>
+                <p>Your friend can join from another network using a secure invitation link.</p>
                 <ol>
                     <li><button type="button" class="link" data-external="https://dashboard.ngrok.com/get-started/your-authtoken">Open ngrok and copy your authtoken</button></li>
                     <li>Paste it below.</li>
@@ -54,7 +85,7 @@
                     <span>Remember it securely on this computer</span>
                 </label>
                 <p id="storage-note" class="fine-print"></p>
-                <button id="token-continue" class="primary" type="button">Save and continue</button>
+                <button id="token-continue" class="primary" type="button">Connect and continue</button>
             </div>
 
             <details id="advanced-options">
@@ -62,41 +93,24 @@
                 <div class="advanced-content">
                     <label for="advertised-origin">Public address for direct connections <span>(optional)</span></label>
                     <input id="advertised-origin" type="text" autocomplete="off" spellcheck="false" placeholder="http://your-address:port">
-                    <p>Only needed with port forwarding. The local port is <strong id="server-port">—</strong>.</p>
+                    <p>Only needed with port forwarding. <span id="port-description">The app chooses a free local port when you connect.</span></p>
                     <div id="saved-token-row" class="saved-setting hidden">
-                        <span>Online credentials configured</span>
+                        <span id="token-status">Online credentials configured</span>
                         <button id="change-token" type="button">Change</button>
                         <button id="forget-token" type="button">Forget</button>
                     </div>
-                    <div class="local-address"><span>Local server</span><code id="local-origin">starting…</code></div>
+                    <div class="local-address"><span>Local server</span><code id="local-origin">Not running</code></div>
                 </div>
             </details>
+            <p class="setup-note">One person hosts. The other opens the invitation on their phone or computer.</p>
         </section>
 
-        <section id="status-panel" class="hidden" aria-live="polite">
-            <div class="status-heading">
-                <span id="status-dot"></span>
-                <div>
-                    <h2>All set</h2>
-                    <p id="status-description">The game window is open.</p>
-                </div>
-            </div>
-            <div class="next-step">
-                <strong>Create the game now</strong>
-                <span>Choose the rules, press “Create Game,” and copy the invitation link.</span>
-            </div>
-            <div id="warning" class="warning hidden"></div>
-            <details class="connection-details">
-                <summary>Connection details</summary>
-                <div id="origins"></div>
-            </details>
-            <div class="actions">
-                <button id="open-game-button" class="primary" type="button">Open game</button>
-                <button id="change-button" type="button">Stop</button>
-            </div>
-        </section>
-
-        <section id="error-panel" class="error hidden" aria-live="assertive"></section>
+        <p id="busy-message" class="notice hidden" role="status"></p>
+        <section id="error-panel" class="error hidden" role="alert"></section>
     </main>
+
+    <section id="game-panel" class="hidden" aria-label="Kamisado game">
+        <iframe id="game-frame" title="Kamisado game" sandbox="allow-scripts allow-same-origin allow-modals" allow="clipboard-write"></iframe>
+    </section>
 </body>
 </html>
