@@ -112,8 +112,19 @@ async function run() {
     const guest = await browser.newContext();
     guest.on('page', page => page.on('pageerror', error => errors.push(error.message)));
     const guestPage = await guest.newPage();
-    await guestPage.goto(invitation);
+    // Pasting a full invitation must use its host, not silently treat the path
+    // as a room on the menu's current origin. Both names reach this test server,
+    // but are distinct browser origins with separate storage and connections.
+    await guestPage.goto(`http://localhost:${server.port}`);
+    await guestPage.waitForFunction(() => !document.getElementById('join-btn').disabled);
+    assert.equal(new URL(guestPage.url()).hostname, 'localhost');
+    await guestPage.locator('#join-id').fill(invitation);
+    await Promise.all([
+      guestPage.waitForURL(invitation),
+      guestPage.locator('#join-btn').click(),
+    ]);
     await guestPage.locator('#game-screen').waitFor({ state: 'visible' });
+    assert.equal(new URL(guestPage.url()).origin, localOrigin, 'A pasted invitation must navigate to the advertised host');
     await page.waitForFunction(() => document.getElementById('turn-indicator').textContent.startsWith('Turn:'));
     assert.equal(await page.locator('#invite-panel').evaluate(panel => panel.open), false, 'invitation must fold away when the opponent joins');
     await page.locator('#invite-title').click();
@@ -124,6 +135,14 @@ async function run() {
     await page.locator('.cell[data-r="0"][data-c="0"]').click();
     await page.locator('.cell[data-r="1"][data-c="0"]').click();
     await guestPage.locator('.cell[data-r="1"][data-c="0"] .piece.black').waitFor();
+    await guestPage.locator('.cell[data-r="7"][data-c="2"] .piece.playable').waitFor();
+    await guestPage.locator('.cell[data-r="7"][data-c="2"]').click();
+    await guestPage.locator('.cell[data-r="6"][data-c="2"]').click();
+    await page.locator('.cell[data-r="6"][data-c="2"] .piece.white.red').waitFor();
+    await page.locator('.cell[data-r="0"][data-c="4"] .piece.playable').waitFor();
+    await page.locator('.cell[data-r="0"][data-c="4"]').click();
+    await page.locator('.cell[data-r="1"][data-c="4"]').click();
+    await guestPage.locator('.cell[data-r="1"][data-c="4"] .piece.black.yellow').waitFor();
     assert.equal(await page.locator('#invite-panel').evaluate(panel => panel.open), true, 'a later game update must preserve an explicitly expanded invitation');
     const invalid = await browser.newContext();
     const invalidPage = await invalid.newPage();
@@ -161,7 +180,7 @@ async function run() {
     await guestPage.locator(`.cell[data-r="${playableCell.r}"][data-c="${playableCell.c}"]`).click();
     assert.equal(await guestPage.locator('.cell.selected').count(), 0, 'clicking a stopped board must not select a move');
     assert.deepEqual(errors, [], 'sharing must not produce uncaught browser errors');
-    console.log('Invitation browser checks passed: create/join/play, QR content, live origins, clipboard failure/absence, mobile layout, invalid-invitation recovery and host-stop feedback.');
+    console.log('Invitation browser checks passed: pasted cross-origin invitation and bidirectional play, QR content, live origins, clipboard failure/absence, mobile layout, invalid-invitation recovery and host-stop feedback.');
     console.log('Screenshots: ' + screenshots);
   } finally {
     // Closing the server first prevents a disconnect-grace timer keeping this

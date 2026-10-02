@@ -1,5 +1,5 @@
 import assert from 'assert';
-import { createServer } from 'net';
+import { createServer, createConnection, type Socket as TcpSocket } from 'net';
 import { io, type Socket } from 'socket.io-client';
 
 import { setPublicOrigin, startServer, type RunningServer } from '../../src/server/index.js';
@@ -19,7 +19,49 @@ async function connect(port: number, transports = ['polling', 'websocket']): Pro
     return { socket, config };
 }
 
+async function testShutdownWithIncompleteHttp(): Promise<void> {
+    const server = await startServer({ port: 0, host: '127.0.0.1' });
+    const unfinished: TcpSocket[] = [];
+    let closing: Promise<void> | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    let finishedInTime = false;
+    try {
+        // Browsers can open speculative TCP connections or leave a request
+        // partially sent. These connections never become Socket.IO clients.
+        for (const request of ['', 'GET /health HTTP/1.1\r\nHost: localhost\r\nX-Unfinished: ',
+            'POST /socket.io/?EIO=4&transport=polling HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n']) {
+            const socket = createConnection({ port: server.port, host: '127.0.0.1' });
+            unfinished.push(socket);
+            socket.on('error', () => { /* Closing may reset an incomplete request. */ });
+            await new Promise<void>((resolve, reject) => {
+                socket.once('connect', resolve);
+                socket.once('error', reject);
+            });
+            if (request) await new Promise<void>((resolve, reject) => socket.write(request, error => error ? reject(error) : resolve()));
+        }
+        // A completed request establishes that the listener is servicing
+        // connections before shutdown starts; no guessed sleep is necessary.
+        const response = await fetch(`http://127.0.0.1:${server.port}/health`);
+        await response.arrayBuffer();
+        closing = server.close();
+        finishedInTime = await Promise.race([
+            closing.then(() => true),
+            new Promise<false>(resolve => { deadline = setTimeout(() => resolve(false), 2500); }),
+        ]);
+    } finally {
+        if (deadline) clearTimeout(deadline);
+        // Keep a failing regression bounded too: release our intentionally
+        // incomplete clients so the old implementation can finish cleaning up.
+        for (const socket of unfinished) socket.destroy();
+        await (closing || server.close());
+    }
+    assert.equal(finishedInTime, true, 'Stopping must not wait for speculative or incomplete HTTP connections to finish');
+    const replacement = await startServer({ port: server.port, host: '127.0.0.1' });
+    await replacement.close();
+}
+
 async function main(): Promise<void> {
+    await testShutdownWithIncompleteHttp();
     const occupied = createServer();
     await new Promise<void>(resolve => occupied.listen(0, '127.0.0.1', resolve));
     const occupiedPort = (occupied.address() as import('net').AddressInfo).port;
@@ -112,7 +154,7 @@ async function main(): Promise<void> {
         await server?.close();
         for (const socket of sockets) socket.close();
     }
-    console.log('Server lifecycle tests passed: occupied port, live origins, disconnect, clean restart.');
+    console.log('Server lifecycle tests passed: incomplete HTTP connections, occupied port, live origins, disconnect, clean restart.');
 }
 
 main().catch(error => {

@@ -56,7 +56,7 @@ async function run() {
     await page.locator('#game-board-view').selectOption('realistic-3d');
     await page.locator('#board-3d canvas:visible, #board:visible .realistic-tower').first().waitFor();
     await page.screenshot({ path: path.join(screenshots, 'computer-realistic-3d.png'), fullPage: true });
-    await page.locator('#game-board-view').selectOption('simple');
+    await page.locator('#game-board-view').selectOption('realistic-2d');
     await page.setViewportSize({ width: 320, height: 740 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await page.screenshot({ path: path.join(screenshots, 'computer-mobile.png'), fullPage: true });

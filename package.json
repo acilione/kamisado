@@ -10,9 +10,9 @@
     "start": "node dist/server/index.js",
     "dev": "tsx watch src/server/index.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
-    "test:unit": "tsx tests/unit/test_game_features.ts && tsx tests/unit/test_sumo.ts && tsx tests/unit/test_rules_comprehensive.ts && tsx tests/unit/test_ai_engine.ts && tsx tests/unit/test_ai_runner.ts && tsx tests/unit/test_timer.ts && tsx tests/unit/test_connectivity.ts && tsx tests/unit/test_token_vault.ts && tsx tests/unit/test_server_lifecycle.ts && tsx tests/unit/test_hosting_controller.ts",
+    "test:unit": "tsx tests/unit/test_game_features.ts && tsx tests/unit/test_sumo.ts && tsx tests/unit/test_rules_comprehensive.ts && tsx tests/unit/test_ai_engine.ts && tsx tests/unit/test_ai_runner.ts && tsx tests/unit/test_timer.ts && tsx tests/unit/test_connectivity.ts && tsx tests/unit/test_invitation_url.ts && node --test tests/unit/test_desktop_artifacts.cjs && tsx tests/unit/test_token_vault.ts && tsx tests/unit/test_server_lifecycle.ts && tsx tests/unit/test_hosting_controller.ts",
     "test:integration": "npm run build && node scripts/run-integration-tests.js",
-    "test:browser": "npm run build && node tests/browser/test_board_views.cjs && node tests/browser/test_invitation_flow.cjs && node tests/browser/test_ai_games.cjs",
+    "test:browser": "npm run build && node tests/browser/test_board_views.cjs && node tests/browser/test_invitation_flow.cjs && node tests/browser/test_ai_games.cjs && node tests/browser/test_desktop_launcher.cjs && node tests/browser/test_p2p_transport.cjs && node tests/browser/test_p2p_games.cjs",
     "test": "npm run typecheck && npm run test:unit && npm run test:integration",
     "ngrok": "node scripts/start-ngrok.js",
     "desktop:dev": "npm run build && electron-forge start",
@@ -38,7 +38,7 @@
   },
   "license": "MIT",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   },
   "dependencies": {
     "@ngrok/ngrok": "^1.7.0",

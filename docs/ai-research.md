@@ -1,73 +1,86 @@
-# Classical Kamisado AI research
+# Computer opponent
 
-Research reviewed on 2026-10-02. The intended opponent uses explicit rules, tree search, and hand-written evaluation. No neural networks, training data, remote inference, or external engine service are needed.
+The computer player uses minimax search with alpha-beta pruning and a handwritten evaluation function. It runs locally in a Node.js worker thread, with no neural network, training data, or external engine service.
 
-## Starting reference
+## Search
 
-The supplied [wizard-chess engine research](https://github.com/acilione/wizard-chess/blob/main/public/engines/RESEARCH.txt) was read through the authenticated GitHub API. Its useful transferable ideas are iterative deepening, alpha-beta search, bounded transposition memory, move ordering, weaker-level score perturbations, and cancellation of background searches. Chess-specific material values, check evasions, capture quiescence, repetition rules, and unconditional alternating-turn negamax do not transfer directly to Kamisado.
+[`engine.ts`](../src/server/ai/engine.ts) searches one move deep, then repeats at increasing depths until it reaches the level's depth, node, or time limit. It keeps the result of the last complete iteration. If no iteration finishes, it returns a legal fallback move.
 
-## Additional primary research
+Search positions are private copies of [`KamisadoGame`](../src/server/game.ts), created by [`position.ts`](../src/server/ai/position.ts) with clocks disabled. Human moves and search moves therefore use the same rules for forced colors, sumo pushes, blocked-turn chains, promotion, and scoring.
 
-- **Dan Setterquist and Peter Skeppstedt, _Constructing a Kamisado playing agent_ (KTH, 2013).** Their agent uses alpha-beta search and compares tower progress, goal-reaching opportunities, and mobility. Their stronger tested combinations emphasize goal-reaching opportunities, then progress, then mobility. Their experiments use 40 marathon matches per pairing, with each agent opening half; this is useful direction for an evaluator, not a calibrated human difficulty rating. They also report a forced first-player win within 17 moves from the standard single-round starting position. That result does not establish perfect play for arbitrary layouts, promoted pieces, or this implementation. [Original thesis](https://www.csc.kth.se/utbildning/kth/kurser/DD143X/dkand13/Group4Per/report/17-setterquist-skeppstedt.pdf)
-- **Donald E. Knuth and Ronald W. Moore, _An Analysis of Alpha-Beta Pruning_ (1975).** Alpha-beta eliminates branches that cannot affect the minimax choice. Its effectiveness depends strongly on ordering; fixed-depth heuristic search is still an approximation to the complete game. This supports a transparent, bounded search before adding more selective techniques. [Original paper, university-hosted copy](https://webdocs.cs.ualberta.ca/~mmueller/courses/657-Fall2025/readings/1975-AIJ-Knuth-Moore-alphabeta.pdf)
-- **Aske Plaat, Jonathan Schaeffer, Wim Pijls and Arie de Bruin, _A New Paradigm for Minimax Search_ and _SSS* = Alpha-Beta + TT_.** These sources, also cited by wizard-chess, emphasize the practical interaction of iterative deepening, memory, and move ordering. They inform the architecture; choosing alpha-beta does not mean implementing MTD(f) or SSS*, or reproducing their chess/checkers/Othello performance. [First paper](https://arxiv.org/abs/1404.1515), [second paper](https://arxiv.org/abs/1404.1517)
-- **Peter Burley, official Kamisado rulebook.** The forced-color rule, blocked-turn chains, deadlock loss, and sumo extra turns determine the search state and successor function. The PDF is the original rulebook mirrored by Boardspace. [Rules PDF](https://www.boardspace.net/kamisado/english/RULES%20ENG.pdf)
-- **Node.js worker-thread documentation.** CPU-intensive JavaScript belongs in a worker so search does not block Socket.IO traffic, timers, or other matches. Worker termination and result identity checks address different failure modes; both are useful. [Official documentation](https://nodejs.org/api/worker_threads.html)
+Scores are measured from the root player's perspective. Each node chooses whether to maximize or minimize according to the actual player to move: a sumo push or a chain of forced passes can leave the same player in control. Assuming that every move switches sides would give incorrect results.
 
-## Kamisado-specific design recommendations
+Move ordering tries goal-reaching moves first, then the previous search's preferred move, pushes, and forward progress. A transposition table stores up to 50,000 positions per request. Entries record the remaining depth, preferred move, and whether the score is exact or a lower or upper bound. Position keys include the pieces, ranks, turn, required color, scores, round state, and winners; match settings stay constant within a search request.
 
-1. **Use the game's authoritative transitions.** Generate legal forward rays for the required tower (all eight on the first move), validate sumo pushes, and simulate the same rules as human moves. Clone search state without starting clocks, scheduling timers, or changing live games.
-2. **Choose max/min from the actual side to move.** Sumo pushes keep the same player; forced passes can also return control to the mover. A root-perspective minimax avoids assuming that every tree edge flips the score. Turn-aware negamax would also work.
-3. **Resolve forced passes before evaluating.** A blocked tower sends control to the opponent tower matching its current square. Continue until a movable tower is found or a `(player, required color)` pair repeats on the unchanged board. Two blocked towers alone do not prove deadlock. The last player who actually moved loses a repeated-chain deadlock, including after a push. This follows rule M8 and the rulebook's worked blocked-turn examples.
-4. **Distinguish terminal results from estimates.** A win/loss must dominate every heuristic and difficulty perturbation. In multi-round games, score value depends on the winning tower's rank and the match target. A practical first implementation can stop at round boundaries and score those outcomes; it must not claim to solve the remaining match. Preferring quicker forced wins and later forced losses within the same search iteration is a possible refinement; the current terminal score does not include distance-to-win.
-5. **Evaluate relevant threats.** Combine immediate goal-reaching opportunities, forward progress, legal mobility, and the currently forced tower's options. Account for rank movement limits. A tower's distance from the goal alone is insufficient: its landing color may hand the opponent an immediate win. Use original, documented coefficients rather than claiming that thesis ranking weights are interchangeable with raw feature weights.
-6. **Keep the search bounded and interruptible.** Iteratively deepen under depth, node, and time ceilings. Preserve the last complete iteration and a legal fallback. Run search outside the server's event loop, reduce its deadline near clock expiry, and discard results if their game/revision/player is no longer current.
-7. **Make caching correct before making it clever.** Include occupancy, ownership, tower colors/ranks, required color, turn, and relevant match context. Distinguish exact values from lower/upper bounds and qualify entries by remaining depth. Never store an incomplete search as exact. If scores depend on root distance, normalize them or include that distance in the cache context.
-8. **Do not import unsafe chess shortcuts.** Voluntary null moves are illegal here. Capture-only quiescence has no direct analogue; a future tactical extension would need to cover forced winning threats and sumo sequences under its own strict budget. Full-width alpha-beta is easier to audit initially.
+Search stops at a round or match result. It does not plan across future rounds or random layouts. For a fill choice, the engine evaluates the two resulting layouts and chooses the better one, choosing left on a tie.
 
-## Ten levels and calibration
+## Evaluation
 
-The levels should increase search depth and node/time budgets, while reducing bounded root-choice variation. Apply variation only to completed root alternatives, never to cached leaf values or terminal wins/losses. Levels are relative settings, not Elo ratings; a deeper search is not guaranteed to choose a better move in every position.
+The evaluator adds the following features for Black and subtracts them for White, then reverses the result when searching for White. These are the implementation's own coefficients, not weights copied from a published playing-strength study.
 
-The implementation's [exported difficulty profiles](../src/shared/ai-levels.ts) define these ceilings:
+| Feature | Score |
+| --- | ---: |
+| Match points | 100 per point |
+| Tower progress from its home row | `2 * advance^2 + 5 * advance` per tower |
+| Promotion rank | 12 per rank |
+| Mobility, considering all towers | 2 per legal move |
+| Towers with a legal move to the goal row | 110 per tower |
+| Current player's required tower mobility | 3 per legal move |
+| Current player's required tower can reach the goal | 1,200 |
 
-| Level | Maximum depth | Node ceiling | Time ceiling (ms) |
+When no color is required, the last two features consider all of the current player's towers. Mobility and goal threats respect movement limits and blocking.
+
+A round win or loss scores `+/-1,000,000`; a match result scores `+/-10,000,000`. The match-point difference contributes another 100 per point. These terminal scores dominate the positional features. There is no extra preference for a shorter win or a longer loss.
+
+## Difficulty levels
+
+[`ai-levels.ts`](../src/shared/ai-levels.ts) defines the ten profiles:
+
+| Level | Name | Maximum depth | Node limit | Time limit (ms) |
+| --- | --- | ---: | ---: | ---: |
+| 1 | First steps | 1 | 150 | 50 |
+| 2 | Beginner | 1 | 400 | 80 |
+| 3 | Learner | 2 | 1,000 | 120 |
+| 4 | Casual | 3 | 2,500 | 180 |
+| 5 | Club | 4 | 6,000 | 300 |
+| 6 | Practised | 5 | 15,000 | 500 |
+| 7 | Challenging | 6 | 35,000 | 750 |
+| 8 | Advanced | 7 | 75,000 | 1,100 |
+| 9 | Expert | 8 | 120,000 | 1,500 |
+| 10 | Master | 9 | 180,000 | 2,000 |
+
+Levels 1-4 can choose a move close to the best score. Their `accuracy` settings are 25, 60, 75, and 90; the allowed score difference is `2 * (100 - accuracy)`. A stable hash of the position and level selects among eligible moves. This variation applies only to completed, nonterminal alternatives, so it cannot override a discovered forced win. These levels search each root move with a full alpha-beta window to obtain comparable scores.
+
+Levels 5-10 use accuracy 100 and choose the best result from the completed search, with pruning at the root as well. The accuracy field controls score tolerance; it is not a percentage of correct moves.
+
+The levels are relative search settings, not Elo ratings. A depth limit is a ceiling: the node or time limit may stop the search earlier. Playing strength has not been calibrated against human players or through a large tournament. Such a comparison should use paired colors, several starting layouts, and a fixed set of tactical positions.
+
+## Server integration
+
+[`runner.ts`](../src/server/ai/runner.ts) allows two active workers and sixteen queued searches. Each worker is terminated when its request finishes, is cancelled, or reaches its deadline. Search time is also capped at one twentieth of the computer's remaining clock; queue time and worker startup still count against that clock.
+
+Before applying a result, the server checks the request generation, game, round, turn, and connection state, then validates the move against the live board. A failed worker produces a legal fallback if time remains. Ending a game, disconnecting, or stopping the server cancels outstanding work.
+
+The [engine tests](../tests/unit/test_ai_engine.ts) compare legal move generation with the rules engine and search results with exhaustive minimax. They cover both colors, all levels, promotions, scoring, retained turns, forced passes, snapshot isolation, budget fallback, and cached versus uncached search. [Runner tests](../tests/unit/test_ai_runner.ts) and [integration tests](../tests/integration/test_ai_games.ts) cover cancellation, failures, clocks, and game lifecycle. See [Development](development.md#tests) for the commands.
+
+## Performance notes
+
+A local check on 2 October 2026 used Node.js 24.10.0 on Ubuntu under WSL, the standard opening, untimed three-point matches, and the default budgets. Other development work was running at the same time.
+
+| Level | Completed depth | Nodes | Elapsed time |
 | --- | ---: | ---: | ---: |
-| 1 | 1 | 150 | 50 |
-| 2 | 1 | 400 | 80 |
-| 3 | 2 | 1,000 | 120 |
-| 4 | 3 | 2,500 | 180 |
-| 5 | 4 | 6,000 | 300 |
-| 6 | 5 | 15,000 | 500 |
-| 7 | 6 | 35,000 | 750 |
-| 8 | 7 | 75,000 | 1,100 |
-| 9 | 8 | 120,000 | 1,500 |
-| 10 | 9 | 180,000 | 2,000 |
+| 1 | 1 | 102 | About 35 ms |
+| 5 | 4 | 4,883 | About 191 ms |
+| 10 | 6 | 68,020 | About 2,000 ms |
 
-These are engineering limits, not measurements or published strength claims. Hardware and position branching affect completed depth. Levels 1–4 select reproducibly among moves near the best score, with narrowing tolerance; levels 5–10 select the best completed search score. Proven terminal wins and losses are excluded from this weakening. Before interpreting levels as a strength ladder, run paired-color matches across standard/random/fill setups and a fixed tactical suite. Record wins, nodes, completed depth, and elapsed time. Test forced wins, forced-color defense, sumo extra turns, pass chains, promotion, fill choices, cancellation, disconnect/rejoin, worker failure, and clock expiry separately from playing-strength experiments.
+Across levels 1-10, completed depths were `1, 1, 1, 2, 4, 4, 5, 5, 6, 6`. This was a responsiveness check on one position, not a strength benchmark; timings and completed depths vary with hardware and position.
 
-## Implementation scope
+## Research references
 
-The [engine](../src/server/ai/engine.ts) implements fixed-root alpha-beta minimax and iterative deepening, with legal successors simulated by the authoritative `KamisadoGame` methods on private snapshots. The table holds at most 50,000 entries per request, with exact/lower/upper bounds, remaining depth, and a preferred move. Its full position keys include piece locations, colors, ranks, ownership, turn, required color, scores, round status, and winners; the match settings are constant within each request. A completed iteration is preserved if a later one reaches a deadline. Levels 5–10 prune at the root as well; levels 1–4 search root alternatives with full windows so their score comparison is exact.
+The [wizard-chess research notes](https://github.com/acilione/wizard-chess/blob/main/public/engines/RESEARCH.txt) provided the starting point for iterative deepening, transposition tables, move ordering, and background search. Kamisado needs its own evaluator and turn handling; chess capture search and voluntary null-move pruning are not used here.
 
-The handwritten evaluator uses these coefficients, from Black's perspective and negated for White:
-
-- Match score difference: 100 per point.
-- Tower advance from its home row: `2 × advance² + 5 × advance` per tower.
-- Promotion: 12 per rank; legal mobility: 2 per available move.
-- Goal threats: 110 per distinct tower with a legal goal-reaching move.
-- Side-to-move options: 3 per move of the required tower, plus 1,200 when that tower can reach the goal immediately. With no forced color, all its towers are eligible.
-
-A round result scores ±1,000,000 and an actual match result ±10,000,000, plus the point-score difference. Search stops at that round boundary; it does not search future random layouts or pretend that a single round settles a multi-round match. Fill direction is chosen by comparing both canonical resulting layouts with the same evaluator, with a deterministic left tie-break.
-
-Levels 1–4 use accuracy parameters 25, 60, 75, and 90. A stable position/level hash selects among completed nonterminal root alternatives within `2 × (100 − accuracy)` points of the best evaluation. Levels 5–10 use accuracy 100 and choose the best result. These parameters describe a search setting, not the percentage of correct moves.
-
-The [worker runner](../src/server/ai/runner.ts) keeps search off the server event loop, limits concurrency to two workers and sixteen queued searches, and terminates canceled work. Server integration checks request generation, game identity, round, turn, and connection state before validating the returned move against the live board. Search time is also limited to one twentieth of the computer's remaining clock; worker startup and queue time still count against that clock. The server falls back to a legal move if a worker fails, and checks clock expiry before applying it.
-
-The [engine tests](../tests/unit/test_ai_engine.ts) cover legal generation against exhaustive canonical validation, all ten levels, wins for both colors, promotion and match scoring, retained turns after pushes and passes, snapshot isolation, legal deadline fallback, repeatability under node budgets, exhaustive minimax agreement, and cached/uncached agreement through a multi-round playout. Integration and runner tests separately cover lifecycle behavior. These checks establish rule and search behavior, not calibrated human playing strength.
-
-The engine, difficulty profiles, and tests define what is actually shipped. Recommendations such as tactical extensions, preference for shorter wins, strength calibration, or complete multi-round solving are not implementation claims. This implementation has no opening book, solved-position database, or trained evaluator.
-
-## Local responsiveness check
-
-A timing check on 2026-10-02 used Node.js 24.10.0 in Ubuntu under WSL, the standard untouched opening, untimed three-point matches, and default budgets. Other development work was running concurrently. Levels 1 through 10 completed depths **1, 1, 1, 2, 4, 4, 5, 5, 6, 6**. Level 1 searched 102 nodes in about 35 ms; level 5 searched 4,883 nodes in about 191 ms; level 10 searched 68,020 nodes in about 2,000 ms. These are one-run responsiveness observations, not strength measurements or portable performance guarantees. The level 3 result also illustrates that a depth ceiling is not a promise that every iteration fits its node budget.
+- Dan Setterquist and Peter Skeppstedt, [*Constructing a Kamisado playing agent*](https://www.csc.kth.se/utbildning/kth/kurser/DD143X/dkand13/Group4Per/report/17-setterquist-skeppstedt.pdf), KTH, 2013. A Kamisado-specific study of alpha-beta search and evaluation based on progress, goal opportunities, and mobility.
+- Donald E. Knuth and Ronald W. Moore, [*An Analysis of Alpha-Beta Pruning*](https://webdocs.cs.ualberta.ca/~mmueller/courses/657-Fall2025/readings/1975-AIJ-Knuth-Moore-alphabeta.pdf), 1975. The basis for the pruning algorithm and the importance of move ordering.
+- Aske Plaat, Jonathan Schaeffer, Wim Pijls, and Arie de Bruin, [A New Paradigm for Minimax Search](https://arxiv.org/abs/1404.1515) and [SSS* = Alpha-Beta + TT](https://arxiv.org/abs/1404.1517). Research on search, stored results, and iterative deepening. This engine does not implement MTD(f) or SSS*.
+- Peter Burley, [*Kamisado rules*](https://www.boardspace.net/kamisado/english/RULES%20ENG.pdf), mirrored by Boardspace. The reference for forced moves, blocked turns, deadlock, and sumo play.
+- [Node.js worker-thread documentation](https://nodejs.org/api/worker_threads.html). The runtime mechanism used to keep CPU-intensive search off the server event loop.

@@ -33,17 +33,68 @@ async function canConnect(port) {
   });
 }
 
+async function assertPortClosed(port, message) {
+  const deadline = Date.now() + 3000;
+  while (await canConnect(port)) {
+    if (Date.now() >= deadline) {
+      if (process.platform === 'win32') {
+        const rows = require('node:child_process').execFileSync('netstat.exe', ['-ano', '-p', 'tcp'], { encoding: 'utf8', windowsHide: true });
+        console.error('Remaining TCP listeners:', rows.split('\n').filter(row => row.includes(`:${port} `) && row.includes('LISTENING')).join('\n'));
+      }
+      assert.fail(`${message} (port ${port} still accepts TCP connections)`);
+    }
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+}
+
+function useLocalIceCandidates() {
+  // Exercise real packaged WebRTC and its iframe permissions without depending on public STUN.
+  const NativeConnection = window.RTCPeerConnection;
+  window.__packagedPeerConnections = [];
+  window.RTCPeerConnection = class extends NativeConnection {
+    constructor(configuration) {
+      super({ ...configuration, iceServers: [] });
+      window.__packagedPeerConnections.push(this);
+    }
+  };
+}
+
+async function peerDiagnostics() {
+  const peers = [];
+  for (const peer of window.__packagedPeerConnections || []) {
+    const stats = await peer.getStats();
+    peers.push({ connection: peer.connectionState, ice: peer.iceConnectionState,
+      gathering: peer.iceGatheringState, signaling: peer.signalingState,
+      candidates: [...stats.values()].filter(stat => ['candidate-pair', 'local-candidate', 'remote-candidate'].includes(stat.type)).map(stat => ({
+        type: stat.type, state: stat.state, nominated: stat.nominated, protocol: stat.protocol,
+        candidateType: stat.candidateType, address: stat.address, port: stat.port,
+        bytesSent: stat.bytesSent, bytesReceived: stat.bytesReceived,
+      })),
+    });
+  }
+  return { url: location.href, status: document.getElementById('peer-status')?.textContent, peers };
+}
+
 async function main() {
   await fs.access(executable);
+  if (process.platform !== 'darwin') {
+    const guide = await fs.readFile(path.join(path.dirname(executable), 'START-HERE.txt'), 'utf8');
+    assert.match(guide, /Host Internet game/);
+    assert.match(guide, /Host a LAN game/);
+  }
   const screenshots = path.join(root, 'out/browser-checks');
   await fs.mkdir(screenshots, { recursive: true });
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'kamisado-packaged-'));
-  const occupied = net.createServer(socket => socket.end());
+  const occupied = net.createServer(socket => socket.destroy());
+  const occupiedLoopback = net.createServer(socket => socket.destroy());
   let app;
+  let appProcess;
+  let shell;
   let browser;
+  let activePeerGuest;
   const watchdog = setTimeout(() => {
     console.error('Packaged smoke exceeded its three-minute deadline.');
-    app?.process().kill('SIGKILL');
+    appProcess?.kill('SIGKILL');
     process.exit(1);
   }, 180000);
   try {
@@ -52,11 +103,19 @@ async function main() {
       occupied.listen(0, '0.0.0.0', resolve);
     });
     const occupiedPort = occupied.address().port;
+    // Windows permits a wildcard and a loopback listener to share a port.
+    // Reserve both scopes so LAN and local-only modes really hit EADDRINUSE,
+    // and our reservation cannot be mistaken for a game listener after Stop.
+    await new Promise((resolve, reject) => {
+      occupiedLoopback.once('error', error => error.code === 'EADDRINUSE' ? resolve() : reject(error));
+      occupiedLoopback.listen(occupiedPort, '127.0.0.1', resolve);
+    });
     const env = { ...process.env, KAMISADO_DESKTOP_PORT: String(occupiedPort), KAMISADO_USER_DATA_DIR: profile };
     delete env.ELECTRON_RUN_AS_NODE;
     console.log('Packaged smoke: launching ' + executable);
-    app = await electron.launch({ executablePath: executable, env, timeout: 30000 });
-    const shell = await app.firstWindow();
+    app = await electron.launch({ executablePath: executable, env, chromiumSandbox: true, timeout: 30000 });
+    appProcess = app.process();
+    shell = await app.firstWindow();
     shell.setDefaultTimeout(15000);
     const errors = [];
     const requests = new Set();
@@ -65,6 +124,10 @@ async function main() {
     assert.equal(await app.evaluate(({ app }) => app.isPackaged), true, 'must test the packaged app');
     assert.equal(await app.evaluate(() => process.versions.electron), require('../package.json').devDependencies.electron, 'packaged runtime must match the pinned Electron version');
     await shell.locator('#lan-button').waitFor({ state: 'visible' });
+    assert.equal(await shell.locator('#peer-host-button').isVisible(), true, 'direct Internet hosting must be discoverable');
+    assert.equal(await shell.locator('#peer-join-button').isVisible(), true, 'direct Internet joining must be discoverable');
+    assert.equal(await shell.locator('#join-invitation').isVisible(), true, 'a LAN guest can paste a complete invitation');
+    assert.equal(await shell.locator('#online-button').isVisible(), false, 'the optional ngrok relay stays inside connection options');
     const initial = await shell.evaluate(() => window.kamisadoDesktop.getState());
     assert.equal(initial.status, 'idle');
     assert.equal(initial.port, 0, 'launching the app must not expose a server before hosting starts');
@@ -114,7 +177,7 @@ async function main() {
     await host.locator('#game-board-view').selectOption('realistic-3d');
     await host.locator('#board-3d canvas:visible, #board:visible .realistic-tower').first().waitFor({ state: 'visible' });
     await shell.screenshot({ path: path.join(screenshots, 'packaged-board.png') });
-    await host.locator('#game-board-view').selectOption('simple');
+    await host.locator('#game-board-view').selectOption('realistic-2d');
 
     console.log('Packaged smoke: reconfigure invitation without reloading the room');
     const gameDocument = shell.frames().find(frame => frame.url().startsWith(state.localOrigin + '/'));
@@ -160,9 +223,9 @@ async function main() {
     await shell.locator('#advertised-origin').fill('');
     await shell.locator('#stop-hosting').click();
     await shell.locator('#confirm-stop').click();
-    await shell.waitForFunction(async () => (await window.kamisadoDesktop.getState()).status === 'idle');
-    await shell.locator('#lan-button').waitFor({ state: 'visible' });
-    assert.equal(await canConnect(state.port), false, 'Stop must close the HTTP and Socket.IO listener');
+    // This action is hidden throughout an active LAN session and appears after Stop completes.
+    await shell.locator('#peer-host-button').waitFor({ state: 'visible' });
+    await assertPortClosed(state.port, 'Stop must close the HTTP and Socket.IO listener');
     await guest.locator('#connection-notice').filter({ hasText: 'The host stopped this game.' }).waitFor({ state: 'visible' });
     assert.equal(await guest.locator('.cell.playable, .cell.selected, .cell.valid-move').count(), 0, 'stopped guests must not see playable moves');
     assert.equal((await shell.evaluate(() => window.kamisadoDesktop.getState())).status, 'idle');
@@ -179,12 +242,92 @@ async function main() {
     assert.equal(new URL(freshInvitation).origin, restarted.connectivity.publicOrigin);
     assert.notEqual(new URL(freshInvitation).pathname, new URL(invitation).pathname, 'restarting creates a new room');
 
-    console.log('Packaged smoke: end network hosting and start an offline computer game');
+    console.log('Packaged smoke: end LAN hosting and enter both direct Internet flows');
     await shell.locator('#hosting-settings').click();
     await shell.locator('#stop-hosting').click();
     await shell.locator('#confirm-stop').click();
     await shell.locator('#computer-button').waitFor({ state: 'visible' });
-    assert.equal(await canConnect(restarted.port), false);
+    await assertPortClosed(restarted.port, 'Ending LAN hosting must release its port');
+    const peerOrigins = [];
+    await shell.context().addInitScript(useLocalIceCandidates);
+    for (const [button, role] of [['#peer-host-button', 'host'], ['#peer-join-button', 'guest']]) {
+      await shell.locator(button).click();
+      const peerPage = shell.frameLocator('#game-frame');
+      await peerPage.locator('#peer-panel').waitFor({ state: 'visible' });
+      assert.equal(await peerPage.locator('#peer-title').textContent(), role === 'host' ? 'Host an Internet game' : 'Join an Internet game');
+      assert.equal(await peerPage.locator('#peer-generate').isDisabled(), true, 'codes require a created game or a pasted invitation');
+      assert.equal(await peerPage.locator('#peer-outgoing').inputValue(), '', 'starting a peer session must not contact STUN or generate a code automatically');
+      assert.match(await peerPage.locator('#peer-code-help').textContent(), /STUN/);
+      const peer = await shell.evaluate(() => window.kamisadoDesktop.getState());
+      assert.equal(peer.status, 'ready');
+      assert.equal(peer.localOnly, true, 'the bundled peer page must only listen on loopback');
+      assert.equal(peer.peerMode, role);
+      assert.deepEqual(peer.connectivity.reachableOrigins, [peer.localOrigin]);
+      assert.equal(new URL(await shell.locator('#game-frame').getAttribute('src')).searchParams.get('peer'), role);
+      assert.equal(await shell.locator('#connection-label').textContent(), 'Internet P2P');
+      peerOrigins.push(peer.localOrigin);
+      let peerGuest;
+      if (role === 'host') {
+        console.log('Packaged smoke: exchange direct invitation and reply with a browser peer');
+        peerGuest = await browser.newPage();
+        activePeerGuest = peerGuest;
+        peerGuest.setDefaultTimeout(15000);
+        peerGuest.on('pageerror', error => errors.push(error.message));
+        peerGuest.on('request', request => requests.add(request.url()));
+        const guestSocketRequests = [];
+        peerGuest.on('request', request => {
+          if (/\/socket\.io\/(?:\?|$)/.test(request.url())) guestSocketRequests.push(request.url());
+        });
+        peerGuest.on('websocket', socket => {
+          if (/\/socket\.io\//.test(socket.url())) guestSocketRequests.push(socket.url());
+        });
+        await peerGuest.addInitScript(useLocalIceCandidates);
+        await peerGuest.goto(peer.localOrigin + '/?peer=guest');
+        await peerGuest.locator('#peer-panel').waitFor({ state: 'visible' });
+        await peerPage.locator('#color-mode').selectOption('black');
+        await peerPage.locator('#position-mode').selectOption('standard');
+        await peerPage.locator('#board-view').selectOption('realistic-2d');
+        await peerPage.locator('#create-btn').click();
+        await peerPage.locator('#game-screen').waitFor({ state: 'visible' });
+        assert.equal(await peerPage.locator('#invite-panel').isVisible(), false, 'peer games share codes, not localhost links');
+        await peerPage.locator('#peer-generate').click();
+        const peerFrame = shell.frames().find(frame => frame.url().startsWith(peer.localOrigin + '/'));
+        assert.ok(peerFrame);
+        await peerFrame.waitForFunction(() => document.getElementById('peer-outgoing').value.length > 100);
+        await peerGuest.locator('#peer-incoming').fill(await peerPage.locator('#peer-outgoing').inputValue());
+        await peerGuest.locator('#peer-generate').click();
+        await peerGuest.waitForFunction(() => document.getElementById('peer-outgoing').value.length > 100);
+        await peerPage.locator('#peer-incoming').fill(await peerGuest.locator('#peer-outgoing').inputValue());
+        await peerPage.locator('#peer-connect').click();
+        await peerGuest.locator('#game-screen').waitFor({ state: 'visible' });
+        await peerPage.locator('#turn-indicator').filter({ hasText: /Turn: BLACK/i }).waitFor();
+        await peerPage.locator('.cell[data-r="0"][data-c="0"]').click();
+        await peerPage.locator('.cell[data-r="1"][data-c="0"]').click();
+        await peerGuest.locator('.cell[data-r="1"][data-c="0"] .piece.black').waitFor();
+        await peerGuest.locator('.cell[data-r="7"][data-c="2"] .piece.playable').waitFor();
+        await peerGuest.locator('.cell[data-r="7"][data-c="2"]').click();
+        await peerGuest.locator('.cell[data-r="6"][data-c="2"]').click();
+        await peerPage.locator('.cell[data-r="6"][data-c="2"] .piece.white').waitFor();
+        assert.match(await peerPage.locator('#turn-indicator').textContent(), /BLACK.*YELLOW/);
+        assert.deepEqual(guestSocketRequests, [], 'the browser peer must send moves through WebRTC, never Socket.IO');
+        await shell.screenshot({ path: path.join(screenshots, 'packaged-peer-game.png') });
+      }
+      await shell.locator('#hosting-settings').click();
+      assert.equal(await shell.locator('#setup-panel').isVisible(), false, 'peer settings cannot switch the connection underneath the game');
+      assert.match(await shell.locator('#status-description').textContent(), /directly to your friend/);
+      await shell.locator('#stop-hosting').click();
+      await shell.locator('#confirm-stop').click();
+      await shell.locator('#peer-host-button').waitFor({ state: 'visible' });
+      await assertPortClosed(peer.port, 'Ending a peer session must close its local page server');
+      if (peerGuest) {
+        await peerGuest.waitForFunction(() => document.getElementById('peer-panel').open
+          && /disconnect|closed|lost|new invitation|interrupted|failed|timed out/i.test(document.getElementById('peer-status').textContent));
+        await peerGuest.close();
+        activePeerGuest = null;
+      }
+    }
+
+    console.log('Packaged smoke: start an offline computer game');
     await shell.locator('#computer-button').click();
     const solo = shell.frameLocator('#game-frame');
     await solo.locator('#create-btn').waitFor({ state: 'visible' });
@@ -212,7 +355,7 @@ async function main() {
     await shell.locator('#stop-hosting').click();
     await shell.locator('#confirm-stop').click();
     await shell.locator('#computer-button').waitFor({ state: 'visible' });
-    assert.equal(await canConnect(offline.port), false);
+    await assertPortClosed(offline.port, 'Ending computer play must release its port');
     await shell.locator('#computer-button').click();
     await solo.locator('#create-btn').waitFor({ state: 'visible' });
     const offlineRestarted = await shell.evaluate(() => window.kamisadoDesktop.getState());
@@ -223,11 +366,12 @@ async function main() {
     await solo.locator('#computer-status').filter({ hasText: 'Thinking' }).waitFor({ state: 'visible' });
     await bounded(app.close(), 10000, 'quit while a packaged computer worker is searching');
     app = null;
-    assert.equal(await canConnect(offlineRestarted.port), false, 'quitting must close the offline game listener and its search worker');
+    await assertPortClosed(offlineRestarted.port, 'Quitting must close the offline game listener and its search worker');
 
     const localOrigins = new Set([
       state.localOrigin, state.connectivity.publicOrigin, restarted.localOrigin, restarted.connectivity.publicOrigin,
       offline.localOrigin, offlineRestarted.localOrigin,
+      ...peerOrigins,
     ]);
     const externalRequests = [...requests].filter(value => {
       const url = new URL(value);
@@ -235,18 +379,28 @@ async function main() {
     });
     assert.deepEqual(externalRequests, [], 'LAN play, computer play, and board assets must not depend on external websites');
     assert.deepEqual(errors, [], 'packaged host and guest must not have uncaught browser errors');
-    console.log('Packaged app checks passed: isolated profile, single window, port fallback, LAN invitation + QR, live connection changes, browser guest move, Stop/restart, offline computer move, ten levels, and quit during search.');
+    console.log('Packaged app checks passed: bundled quickstart, direct Internet entry flows, real WebRTC invitation/reply and bidirectional moves, peer disconnect, isolated profile, single window, port fallback, LAN invitation + QR, live connection changes, browser guest move, Stop/restart, offline computer move, ten levels, and quit during search.');
+  } catch (error) {
+    console.error('Packaged smoke failed:', error);
+    for (const frame of shell?.frames() || []) {
+      if (frame.parentFrame()) console.error('Host peer diagnostics:', await frame.evaluate(peerDiagnostics).catch(cause => String(cause)));
+    }
+    if (activePeerGuest) console.error('Guest peer diagnostics:', await activePeerGuest.evaluate(peerDiagnostics).catch(cause => String(cause)));
+    throw error;
   } finally {
     console.log('Packaged smoke: cleanup');
     await bounded(browser?.close() || Promise.resolve(), 5000, 'close guest browser').catch(error => console.warn(error.message));
     await bounded(app?.close() || Promise.resolve(), 5000, 'close packaged app').catch(error => {
       console.warn(error.message);
-      app?.process().kill('SIGKILL');
+      appProcess?.kill('SIGKILL');
     });
-    await new Promise(resolve => occupied.close(resolve));
+    for (const reservation of [occupiedLoopback, occupied]) {
+      if (reservation.listening) await bounded(new Promise(resolve => reservation.close(resolve)), 5000, 'close reserved port')
+        .catch(error => console.warn(error.message));
+    }
     assert.equal(path.dirname(path.resolve(profile)), path.resolve(os.tmpdir()), 'cleanup must stay in the temporary directory');
     assert.ok(path.basename(profile).startsWith('kamisado-packaged-'), 'cleanup must target this test profile');
-    await fs.rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(error => console.warn(error.message));
+    await bounded(fs.rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }), 15000, 'remove test profile').catch(error => console.warn(error.message));
     clearTimeout(watchdog);
   }
 }

@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20, 22]
+        node-version: [22, 24]
 
     steps:
       - uses: actions/checkout@v4
@@ -31,10 +31,10 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: Install browser test dependencies
-        if: matrix.node-version == 22
+        if: matrix.node-version == 24
         run: npx playwright install --with-deps chromium
-      - name: Test board views and invitations
-        if: matrix.node-version == 22
+      - name: Test board views, invitations, and P2P games
+        if: matrix.node-version == 24
         run: npm run test:browser
 
   desktop-package:
