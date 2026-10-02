@@ -9,6 +9,7 @@ const tests = [
     'test_link_system.ts',
     'test_lobby_refresh.ts',
     'test_websocket_resilience.ts',
+    'test_ai_games.ts',
 ];
 
 const server = spawn(process.execPath, ['dist/server/index.js'], {

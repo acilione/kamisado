@@ -1,0 +1,133 @@
+Kamisado
+
+Getting started
+
+Download an application from:
+https://github.com/acilione/kamisado/releases
+
+No Node.js, terminal, or development tools are needed to use the app.
+Choose an installer or ZIP for your computer. The "Source code" archives
+are for developers. You do not need the RELEASES or .nupkg support files.
+
+Install and open
+
+Windows
+  Download the file ending in Setup.exe, run it, and open Kamisado from
+  the Start menu.
+
+  For the portable version, download the win32-x64 ZIP, choose Extract All,
+  and open Kamisado.exe in the extracted folder. Keep its other files
+  beside it. Preferences are still saved in your Windows user profile.
+
+Linux
+  On Debian or Ubuntu, open the .deb file with your software installer.
+  On a Fedora-compatible system, use the .rpm file when it is provided.
+  After installation, open Kamisado from the applications menu.
+
+  For the portable version, extract the linux-x64 ZIP and open Kamisado
+  inside it. If needed, allow execution in the file's Properties >
+  Permissions. The ZIP still needs system libraries; use your distribution's
+  package if libraries are missing. Current downloads are for Intel/AMD
+  64-bit computers, not ARM devices.
+
+Mac
+  Mac builds are not included in the automated releases yet. You can join
+  a LAN game hosted on Windows or Linux through your Mac's browser.
+
+  If a maintainer supplies a Mac ZIP, choose darwin-arm64 for Apple silicon
+  or darwin-x64 for an Intel Mac. Find your processor under Apple menu >
+  About This Mac. Extract the ZIP, drag Kamisado.app to Applications, and
+  open it there. Mac packaging still needs testing, signing, and notarization.
+
+Current builds are unsigned. If your system shows a publisher warning,
+check that the download came from the project or a maintainer you trust.
+For Mac opening alerts, follow Apple's guidance:
+https://support.apple.com/en-us/102445
+
+Playing
+
+Against the computer
+  Choose "Play computer", select a difficulty from 1 to 10 and your game
+  options, then press "Play computer" again. This works offline.
+  Black moves first; choosing White lets the computer open.
+
+On the same network (LAN)
+  1. Connect both devices to the same Wi-Fi or Ethernet network.
+  2. The host opens the app and chooses "Host a LAN game".
+  3. Choose the rules and press "Create Game".
+  4. Share the invitation link or let the other player scan its QR code.
+  5. The other player opens the link in a browser on a computer, phone,
+     or tablet. They do not need to install the app.
+
+  If both players have the app, the guest can use "Join with a link".
+  Send the full invitation, including its address and /game/ part.
+  LAN play works without an account or an Internet connection.
+
+Over the Internet (P2P)
+  1. Both players open the app. One chooses "Host Internet game" and the
+     other chooses "Join Internet game".
+  2. The host sets the rules, presses "Create Game", then presses
+     "Create invitation code". Use "Copy code" and send it through chat.
+  3. The guest pastes the invitation and presses "Create reply code".
+     Copy that reply and send it back to the host.
+  4. The host pastes the reply and presses "Connect to friend".
+
+  Keep both apps open while playing. Codes expire after ten minutes.
+  Moves travel directly between the two computers; no central Kamisado
+  game or matchmaking server is needed. A public STUN service helps find
+  connection addresses. Some networks block P2P, and this mode has no relay
+  fallback. Connection troubleshooting is below.
+
+Board controls
+
+Click a tower and then a highlighted destination. Choose Realistic 2D or
+Realistic 3D from the view selector. In 3D, drag to rotate, scroll or pinch
+to zoom, and use "Reset view" to restore the camera.
+
+Enable "Symbol mode" in the game options, or use the "Symbols" switch
+below the board. Matching characters identify square and tower colors.
+View and symbol preferences are saved on your device.
+
+Ending a session
+
+Keep the host app open and the computer awake. Closing it ends its games;
+unfinished matches are not saved.
+
+In computer or P2P mode, use Session > End session to return to the welcome
+window. In LAN or ngrok mode, use Connection > Stop hosting. A temporary
+disconnect allows up to 60 seconds to return; the between-round confirmation
+countdown can end the match sooner. For P2P, exchange fresh codes if needed.
+Restarting the host app cannot restore a match.
+
+Connection troubleshooting
+
+LAN invitation will not open
+  Check that both devices are on the same network and the host is still
+  running. On a phone, use Wi-Fi rather than mobile data. Allow Kamisado
+  through the host's firewall on a trusted private network when prompted.
+  Guest Wi-Fi and some hotspots block communication between devices.
+
+  If a VPN blocks local access, change its local-network setting or
+  disconnect it for LAN play. If the host has several network adapters,
+  open Connection > Connection details and choose "Use for invitation"
+  beside the address shared with your friend. Resend the game's updated link.
+
+P2P connection fails
+  Use the complete invitation and its matching reply. After an expired
+  code or failed attempt, create a fresh invitation. If the connection still
+  times out, try another network. An existing private VPN can also let both
+  computers use a reachable LAN invitation.
+
+Other Internet connection options
+  The optional ngrok connection uses the host's account and relays traffic
+  through ngrok. The guest joins in a browser. Choose "Connect with ngrok"
+  under "Other Internet connection options" and follow the token setup.
+
+Guides and help
+
+Player and developer documentation:
+https://github.com/acilione/kamisado#documentation
+
+Report a problem, including your operating system, downloaded filename,
+game mode, and error message:
+https://github.com/acilione/kamisado/issues

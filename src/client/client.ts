@@ -1,10 +1,15 @@
-import type { GameState, PlayerColor, PieceColor } from '../shared/types.js';
+import type { GameState, PlayerColor } from '../shared/types.js';
 import { BOARD_COLORS, STANDARD_LAYOUT } from '../shared/constants.js';
-import { COLOR_SYMBOLS, createColorSymbol } from './symbols.js';
+import { AI_LEVELS, isAiLevel } from '../shared/ai-levels.js';
+import { normalizeGameInvitation } from '../shared/invitation-url.js';
 import { createRealisticTower, createRealisticSymbol, REALISTIC_COLORS } from './realistic-art.js';
 import { RealisticBoard3D } from './board-3d.js';
+import { InvitationPanel } from './invitation.js';
+import { PeerPanel } from './peer-panel.js';
 
-const socket = io();
+const requestedPeerMode = new URLSearchParams(window.location.search).get('peer');
+const peer = requestedPeerMode === 'host' || requestedPeerMode === 'guest' ? new PeerPanel(requestedPeerMode) : null;
+const socket = peer?.role === 'guest' ? peer.transport.getGuestSocket() : io();
 
 // State
 let gameId: string | null = null;
@@ -12,6 +17,10 @@ let playerColor: PlayerColor | null = null;
 let gameState: GameState | null = null;
 let selectedPiece: { r: number; c: number } | null = null;
 let isSpectator = false;
+let connectionReady = false;
+let transportConnected = false;
+let hostStopped = false;
+let connectionVersion = 0;
 const playerId = getPlayerId();
 let timerInterval: ReturnType<typeof setInterval> | null = null;
 let timerEndTime: number | null = null;
@@ -26,23 +35,62 @@ const screens = {
 const boardEl = document.getElementById('board')!;
 const turnIndicatorEl = document.getElementById('turn-indicator')!;
 const messageEl = document.getElementById('message')!;
+const opponentSelect = document.getElementById('opponent') as HTMLSelectElement;
+const aiLevelSelect = document.getElementById('ai-level') as HTMLSelectElement;
+const leaveComputerBtn = document.getElementById('leave-computer-btn') as HTMLButtonElement;
+let leavingComputer = false;
+for (const profile of AI_LEVELS) {
+    aiLevelSelect.add(new Option(`${profile.level} · ${profile.name}`, String(profile.level)));
+}
+aiLevelSelect.value = '5';
+try {
+    const savedLevel = Number(localStorage.getItem('kamisado_aiLevel'));
+    if (isAiLevel(savedLevel)) aiLevelSelect.value = String(savedLevel);
+} catch { /* Preferences are optional. */ }
+if (new URLSearchParams(window.location.search).get('opponent') === 'computer') {
+    opponentSelect.value = 'computer';
+}
+if (peer) {
+    opponentSelect.value = 'human';
+    opponentSelect.disabled = true;
+    document.getElementById('join-game-options')!.classList.add('hidden');
+    document.getElementById('join-separator')!.classList.add('hidden');
+    if (peer.role === 'guest') document.getElementById('create-game-options')!.classList.add('hidden');
+}
+function updateOpponentOptions(): void {
+    const solo = opponentSelect.value === 'computer';
+    document.getElementById('computer-options')!.classList.toggle('hidden', !solo);
+    document.getElementById('create-btn')!.textContent = solo ? 'Play computer' : 'Create Game';
+}
+opponentSelect.addEventListener('change', updateOpponentOptions);
+aiLevelSelect.addEventListener('change', () => {
+    try { localStorage.setItem('kamisado_aiLevel', aiLevelSelect.value); } catch { /* Session preference. */ }
+});
+updateOpponentOptions();
+leaveComputerBtn.addEventListener('click', leaveComputerGame);
+const invitation = new InvitationPanel(window.__KAMISADO_RUNTIME_CONFIG__?.publicOrigin || window.location.origin);
+socket.on('runtimeConfig', config => {
+    window.__KAMISADO_RUNTIME_CONFIG__ = config;
+    invitation.setOrigin(config.publicOrigin || window.location.origin);
+});
 const symbolToggles = document.querySelectorAll<HTMLInputElement>('.symbol-mode-toggle');
 const symbolLegend = document.getElementById('symbol-legend')!;
 const symbolKey = document.getElementById('symbol-key') as HTMLDetailsElement;
-type BoardView = 'simple' | 'realistic-2d' | 'realistic-3d';
+type BoardView = 'realistic-2d' | 'realistic-3d';
 const boardViewSelects = document.querySelectorAll<HTMLSelectElement>('.board-view-select');
 const board3DEl = document.getElementById('board-3d')!;
 const viewNotice = document.getElementById('view-notice')!;
-let boardView: BoardView = 'simple';
+let boardView: BoardView = 'realistic-2d';
 let board3D: RealisticBoard3D | null = null;
 try {
     const savedView = localStorage.getItem('kamisado_boardView');
     if (savedView === 'realistic-2d' || savedView === 'realistic-3d') boardView = savedView;
+    else if (savedView !== null) localStorage.setItem('kamisado_boardView', boardView);
 } catch { /* Display settings remain usable without browser storage. */ }
 applyBoardView();
 boardViewSelects.forEach(select => select.addEventListener('change', () => {
     const value = select.value;
-    if (value !== 'simple' && value !== 'realistic-2d' && value !== 'realistic-3d') return;
+    if (value !== 'realistic-2d' && value !== 'realistic-3d') return;
     boardView = value;
     viewNotice.textContent = '';
     saveBoardView();
@@ -89,21 +137,14 @@ try {
     // Display preferences still work when browser storage is unavailable.
 }
 
-function createDisplaySymbol(color: PieceColor, className = ''): HTMLSpanElement {
-    return boardView === 'simple' ? createColorSymbol(color, className) : createRealisticSymbol(color, className);
-}
-
 function renderSymbolLegend(): void {
     symbolLegend.replaceChildren();
     for (const color of STANDARD_LAYOUT) {
         const item = document.createElement('li');
-        const label = boardView === 'simple' ? `${color} / ${COLOR_SYMBOLS[color].name}` : color;
-        item.append(createDisplaySymbol(color), document.createTextNode(label));
+        item.append(createRealisticSymbol(color), document.createTextNode(color));
         symbolLegend.appendChild(item);
     }
-    document.getElementById('symbol-key-help')!.textContent = boardView === 'simple'
-        ? "Match the square's shape to the shape inside a tower."
-        : 'Match the printed character on a square to the same character on a tower.';
+    document.getElementById('symbol-key-help')!.textContent = 'Match the printed character on a square to the same character on a tower.';
 }
 applySymbolMode();
 symbolToggles.forEach(toggle => toggle.addEventListener('change', () => {
@@ -126,26 +167,75 @@ function applySymbolMode(): void {
     if (!symbolMode) symbolKey.open = false;
 }
 
-function describeColor(color: PieceColor): string {
-    return symbolMode && boardView === 'simple' ? COLOR_SYMBOLS[color].name : color;
-}
-
 // Parse URL for direct game link
 function getGameIdFromUrl(): string | null {
+    if (peer?.role === 'guest') return peer.transport.gameId;
     const path = window.location.pathname;
     const match = path.match(/^\/game\/([a-zA-Z0-9]+)$/);
     return match ? match[1] : null;
 }
 
-// Initial check for active session or URL-based join
+function sessionUrl(path: string): string {
+    if (!peer) return path;
+    const url = new URL(path, window.location.origin);
+    url.searchParams.set('peer', peer.role);
+    return url.pathname + url.search;
+}
+
+function refreshConnectionState(): void {
+    const notice = document.getElementById('connection-notice')!;
+    notice.classList.toggle('hidden', connectionReady && !hostStopped);
+    notice.textContent = hostStopped
+        ? 'The host stopped this game. Ask them for a new invitation.'
+        : peer?.role === 'guest' ? 'Connect to your friend using the connection codes above.' : 'Connection lost. Reconnecting to the host…';
+    for (const id of ['create-btn', 'join-btn']) {
+        (document.getElementById(id) as HTMLButtonElement).disabled = !connectionReady || hostStopped;
+    }
+    selectedPiece = null;
+    if (gameState) {
+        renderBoard();
+        updateUI();
+    }
+}
+
+socket.on('hostStopped', () => {
+    hostStopped = true;
+    connectionReady = false;
+    connectionVersion++;
+    if (disconnectInterval) { clearInterval(disconnectInterval); disconnectInterval = null; }
+    refreshConnectionState();
+});
+
+socket.on('disconnect', () => {
+    transportConnected = false;
+    connectionReady = false;
+    connectionVersion++;
+    if (disconnectInterval) { clearInterval(disconnectInterval); disconnectInterval = null; }
+    refreshConnectionState();
+});
+
+// Restore server-authoritative state before accepting actions after reconnecting.
 socket.on('connect', () => {
+    transportConnected = true;
+    // A fresh peer invitation may come from a restarted host with a new room.
+    // Ordinary browser sessions still keep their explicit host-stop notice.
+    if (peer?.role === 'guest') hostStopped = false;
+    if (hostStopped) return;
+    const version = ++connectionVersion;
+    connectionReady = false;
     socket.emit('checkActiveSession', { playerId }, (response) => {
+        if (version !== connectionVersion || hostStopped) return;
         if (response.active) {
             handleJoinResponse(response);
         } else {
             const urlGameId = getGameIdFromUrl();
             if (urlGameId) {
-                socket.emit('joinGame', { gameId: urlGameId, playerId }, handleJoinResponse);
+                socket.emit('joinGame', { gameId: urlGameId, playerId }, result => {
+                    if (version === connectionVersion && !hostStopped) handleJoinResponse(result);
+                });
+            } else {
+                connectionReady = true;
+                refreshConnectionState();
             }
         }
     });
@@ -153,20 +243,59 @@ socket.on('connect', () => {
 
 // Event Listeners
 document.getElementById('create-btn')!.addEventListener('click', () => {
+    if (!connectionReady || hostStopped || peer?.role === 'guest') return;
     socket.emit('createGame', {
+        opponent: opponentSelect.value === 'computer' ? 'computer' : 'human',
+        ...(opponentSelect.value === 'computer' ? { aiLevel: Number(aiLevelSelect.value) } : {}),
         matchType: (document.getElementById('match-type') as HTMLSelectElement).value,
         timer: (document.getElementById('timer') as HTMLSelectElement).value,
         colorMode: (document.getElementById('color-mode') as HTMLSelectElement).value,
         positionMode: (document.getElementById('position-mode') as HTMLSelectElement).value,
         playerId,
-    }, handleJoinResponse);
+    }, currentJoinResponse());
 });
 
+let invitationRequest = 0;
+function openInvitation(url: string): void {
+    if (window.parent === window) {
+        window.location.assign(url);
+        return;
+    }
+    // The desktop shell opens a friend's invitation in the system browser. The
+    // embedded game keeps its local-only navigation and receives no native API.
+    const requestId = ++invitationRequest;
+    const listener = (event: MessageEvent) => {
+        if (event.source !== window.parent || event.data?.type !== 'kamisado:join-result' || event.data.requestId !== requestId) return;
+        clearTimeout(timeout);
+        window.removeEventListener('message', listener);
+        if (!event.data.success) alert(event.data.message || 'Could not open the invitation.');
+    };
+    const timeout = setTimeout(() => {
+        window.removeEventListener('message', listener);
+        alert('Open this invitation in your web browser to join your friend.');
+    }, 5000);
+    window.addEventListener('message', listener);
+    window.parent.postMessage({ type: 'kamisado:join-invitation', url, requestId }, '*');
+}
+
 document.getElementById('join-btn')!.addEventListener('click', () => {
+    if (!connectionReady || hostStopped) return;
     const rawValue = (document.getElementById('join-id') as HTMLInputElement).value.trim();
-    const id = rawValue.match(/(?:\/game\/)?([a-f0-9]{12})\/?$/i)?.[1];
+    if (/^https?:\/\//i.test(rawValue)) {
+        try {
+            const url = normalizeGameInvitation(rawValue);
+            if (new URL(url).origin !== window.location.origin) {
+                openInvitation(url);
+                return;
+            }
+        } catch (error) {
+            alert(error instanceof Error ? error.message : 'Invalid invitation link.');
+            return;
+        }
+    }
+    const id = rawValue.match(/^(?:https?:\/\/[^/]+)?(?:\/game\/)?([a-f0-9]{12})\/?$/i)?.[1]?.toLowerCase();
     if (id) {
-        socket.emit('joinGame', { gameId: id, playerId }, handleJoinResponse);
+        socket.emit('joinGame', { gameId: id, playerId }, currentJoinResponse());
     } else {
         alert('Enter a valid game ID or invitation link.');
     }
@@ -203,12 +332,67 @@ interface JoinResponse {
     roundTimerEndTime?: number | null;
 }
 
+function currentJoinResponse(): (response: JoinResponse) => void {
+    const version = connectionVersion;
+    return response => {
+        if (version === connectionVersion) handleJoinResponse(response);
+    };
+}
+
+function returnToMenu(): void {
+    gameId = null;
+    gameState = null;
+    peer?.updateGame(null);
+    playerColor = null;
+    isSpectator = false;
+    selectedPiece = null;
+    invitation.setGame(null);
+    dispose3DBoard();
+    screens.game.classList.add('hidden');
+    screens.menu.classList.remove('hidden');
+    if (disconnectInterval) { clearInterval(disconnectInterval); disconnectInterval = null; }
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    if (chessClockInterval) { clearInterval(chessClockInterval); chessClockInterval = null; }
+    timerEndTime = null;
+    document.getElementById('timer-container')?.remove();
+    messageEl.textContent = '';
+    window.history.replaceState({}, '', sessionUrl(opponentSelect.value === 'computer' ? '/?opponent=computer' : '/'));
+    refreshConnectionState();
+}
+
+function leaveComputerGame(): void {
+    if (!gameState?.computer || !gameId || !connectionReady || hostStopped || leavingComputer) return;
+    leavingComputer = true;
+    leaveComputerBtn.disabled = true;
+    const room = gameId;
+    const version = connectionVersion;
+    socket.timeout(5000).emit('leaveComputerGame', { gameId: room }, (error, response) => {
+        leavingComputer = false;
+        if (version !== connectionVersion || room !== gameId) return;
+        if (error || !response?.success) {
+            updateUI();
+            alert(response?.message || 'Could not end the game. Please try again.');
+            return;
+        }
+        returnToMenu();
+    });
+}
+
 function handleJoinResponse(response: JoinResponse): void {
+    if (hostStopped || !transportConnected) return;
     if (response.success) {
+        connectionReady = true;
+        refreshConnectionState();
         gameId = response.gameId!;
         playerColor = response.color || null;
         gameState = response.gameState!;
         isSpectator = response.isSpectator === true;
+        leavingComputer = false;
+        if (gameState.computer) {
+            opponentSelect.value = 'computer';
+            aiLevelSelect.value = String(gameState.computer.level);
+            updateOpponentOptions();
+        }
 
         screens.menu.classList.add('hidden');
         screens.game.classList.remove('hidden');
@@ -216,39 +400,20 @@ function handleJoinResponse(response: JoinResponse): void {
         renderBoard();
         updateUI();
 
-        // Build shareable URL
-        const shareOrigin = window.__KAMISADO_RUNTIME_CONFIG__?.publicOrigin || window.location.origin;
-        const shareUrl = `${shareOrigin}/game/${gameId}`;
-
         if (isSpectator) {
-            messageEl.innerHTML = `<strong>👁 Spectating</strong> - Watch only mode`;
+            messageEl.textContent = 'Spectating — watch only';
             messageEl.style.color = '#ffa500';
         } else if (response.active && gameState!.roundState !== 'waiting_start') {
             messageEl.textContent = `Session restored. You are ${playerColor!.toUpperCase()}.`;
             messageEl.style.color = 'white';
         } else {
-            // Show share link for new games AND restored lobbies (waiting_start)
-            messageEl.innerHTML = `
-                <span>Share: <code id="share-url" style="background:#333;padding:2px 6px;border-radius:3px;">${shareUrl}</code></span>
-                <button id="copy-link-btn" style="margin-left:10px;padding:5px 10px;font-size:0.9rem;">Copy</button>
-            `;
+            messageEl.textContent = `You are ${playerColor!.toUpperCase()}.`;
             messageEl.style.color = 'white';
-
-            // Add copy functionality
-            document.getElementById('copy-link-btn')!.onclick = () => {
-                navigator.clipboard.writeText(shareUrl).then(() => {
-                    document.getElementById('copy-link-btn')!.textContent = 'Copied!';
-                    setTimeout(() => {
-                        const btn = document.getElementById('copy-link-btn');
-                        if (btn) btn.textContent = 'Copy';
-                    }, 2000);
-                });
-            };
         }
 
         // Update browser URL for direct links
         if (window.location.pathname !== `/game/${gameId}`) {
-            window.history.replaceState({}, '', `/game/${gameId}`);
+            window.history.replaceState({}, '', sessionUrl(`/game/${gameId}`));
         }
 
         if (!isSpectator && response.opponentDisconnected && response.timeoutSeconds && response.timeoutSeconds > 0) {
@@ -261,7 +426,11 @@ function handleJoinResponse(response: JoinResponse): void {
         }
 
     } else {
-        alert(response.message);
+        // A missing/expired invitation is a healthy connection to an unavailable
+        // room. Return to a usable menu instead of retaining a frozen game.
+        connectionReady = true;
+        returnToMenu();
+        alert(response.message || 'This invitation is no longer available.');
     }
 }
 
@@ -271,16 +440,8 @@ socket.on('playerJoined', () => {
 });
 
 socket.on('lobbyExpired', () => {
-    dispose3DBoard();
     alert('Lobby has expired or was cancelled.');
-    screens.game.classList.add('hidden');
-    screens.menu.classList.remove('hidden');
-    gameId = null;
-    playerColor = null;
-    gameState = null;
-    messageEl.textContent = '';
-    localStorage.removeItem('kamisado_playerId');
-    if (disconnectInterval) clearInterval(disconnectInterval);
+    returnToMenu();
 });
 
 function handleOpponentDisconnect(timeoutSeconds: number): void {
@@ -356,6 +517,7 @@ socket.on('sessionTakenOver', () => {
     document.title = "Inactive - Kamisado";
     messageEl.textContent = "Session active elsewhere.";
     gameId = null;
+    invitation.setGame(null);
 });
 
 socket.on('gameStateUpdate', (newState) => {
@@ -406,7 +568,7 @@ function renderBoard(): void {
     if (!gameState) return;
     boardEl.innerHTML = '';
 
-    const canInteract = !isSpectator &&
+    const canInteract = connectionReady && !hostStopped && !isSpectator &&
         !gameState.finished &&
         gameState.roundState === 'playing' &&
         gameState.turn === playerColor;
@@ -422,24 +584,19 @@ function renderBoard(): void {
             const cell = document.createElement('div');
             cell.className = `cell ${squareColor}`;
             cell.style.setProperty('--tile-color', REALISTIC_COLORS[squareColor]);
-            if ((r + c) % 2 !== 0) cell.classList.add('alternate-square');
             cell.dataset.r = String(r);
             cell.dataset.c = String(c);
-            const squareLabel = `Row ${r + 1}, column ${c + 1}: ${describeColor(squareColor)} square`;
+            const squareLabel = `Row ${r + 1}, column ${c + 1}: ${squareColor} square`;
             cell.title = piece
-                ? `${squareLabel}; ${piece.player} ${describeColor(piece.color)} tower, rank ${piece.sumo}`
+                ? `${squareLabel}; ${piece.player} ${piece.color} tower, rank ${piece.sumo}`
                 : `${squareLabel}; empty`;
             cell.setAttribute('aria-label', cell.title);
             cell.setAttribute('role', 'group');
             if (symbolMode) {
-                if (boardView === 'simple') {
-                    cell.appendChild(createColorSymbol(squareColor, piece ? 'square-symbol' : 'square-symbol empty-square-symbol'));
-                } else {
-                    cell.append(
-                        createRealisticSymbol(squareColor, 'square-symbol realistic-square-symbol'),
-                        createRealisticSymbol(squareColor, 'square-symbol realistic-square-symbol opposite-symbol'),
-                    );
-                }
+                cell.append(
+                    createRealisticSymbol(squareColor, 'square-symbol realistic-square-symbol'),
+                    createRealisticSymbol(squareColor, 'square-symbol realistic-square-symbol opposite-symbol'),
+                );
             }
 
             if (selectedPiece && selectedPiece.r === r && selectedPiece.c === c) {
@@ -450,11 +607,7 @@ function renderBoard(): void {
                 const pieceEl = document.createElement('div');
                 pieceEl.className = `piece ${piece.player} ${piece.color}`;
                 pieceEl.dataset.color = piece.color;
-                if (boardView !== 'simple') {
-                    pieceEl.appendChild(createRealisticTower(piece));
-                } else if (symbolMode) {
-                    pieceEl.appendChild(createColorSymbol(piece.color, 'tower-symbol'));
-                }
+                pieceEl.appendChild(createRealisticTower(piece));
                 if (piece.sumo > 0) {
                     const rank = document.createElement('span');
                     rank.className = 'sumo-rank';
@@ -490,7 +643,7 @@ function renderBoard(): void {
 }
 
 function handleCellClick(r: number, c: number): void {
-    if (!gameState || !gameId || isSpectator || gameState.finished ||
+    if (!connectionReady || hostStopped || !gameState || !gameId || isSpectator || gameState.finished ||
         gameState.roundState !== 'playing' || gameState.turn !== playerColor) return;
 
     const piece = gameState.board[r][c];
@@ -519,12 +672,33 @@ function handleCellClick(r: number, c: number): void {
 
 function updateUI(): void {
     if (!gameState) return;
+    peer?.updateGame(gameState.id, gameState.finished);
+    const computer = gameState.computer;
+    const computerStatus = document.getElementById('computer-status')!;
+    computerStatus.classList.toggle('hidden', !computer);
+    computerStatus.textContent = computer
+        ? `Computer · Level ${computer.level} · ${AI_LEVELS[computer.level - 1]?.name || ''}${computer.thinking && connectionReady && !hostStopped ? ' · Thinking…' : ''}`
+        : '';
+    document.getElementById('computer-controls')!.classList.toggle('hidden', !computer || gameState.finished);
+    leaveComputerBtn.disabled = !connectionReady || hostStopped || leavingComputer;
+    if (!connectionReady || hostStopped) {
+        invitation.setGame(null);
+        turnIndicatorEl.textContent = hostStopped ? 'Game stopped' : 'Reconnecting…';
+        turnIndicatorEl.className = '';
+        messageEl.textContent = '';
+        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+        if (chessClockInterval) { clearInterval(chessClockInterval); chessClockInterval = null; }
+        timerEndTime = null;
+        document.getElementById('timer-container')?.remove();
+        return;
+    }
+    invitation.setGame(computer || peer ? null : gameId, gameState.roundState === 'waiting_start' && !isSpectator);
 
     turnIndicatorEl.innerHTML = '';
 
     let statusText = `Turn: ${gameState.turn.toUpperCase()}`;
     if (gameState.requiredColor) {
-        statusText += ` (Must move ${describeColor(gameState.requiredColor).toUpperCase()})`;
+        statusText += ` (Must move ${gameState.requiredColor.toUpperCase()})`;
     }
 
     if (gameState.finished) {
@@ -539,8 +713,9 @@ function updateUI(): void {
         btn.textContent = 'Back to Main Menu';
         btn.style.backgroundColor = '#444';
         btn.onclick = () => {
+            if (gameState?.computer) { leaveComputerGame(); return; }
             localStorage.removeItem('kamisado_playerId');
-            window.location.href = '/';
+            window.location.href = sessionUrl('/');
         };
         turnIndicatorEl.appendChild(btn);
 
@@ -559,6 +734,7 @@ function updateUI(): void {
         btn.textContent = 'Cancel Game';
         btn.style.backgroundColor = '#cc0000';
         btn.onclick = () => {
+            if (!connectionReady || hostStopped) return;
             if (confirm('Are you sure you want to cancel the lobby?')) {
                 socket.emit('cancelGame', { gameId: gameId! }, (res) => {
                     if (!res.success) alert(res.message || 'Failed to cancel');
@@ -588,6 +764,7 @@ function updateUI(): void {
             btn.id = 'next-round-btn';
             btn.textContent = 'Ready for Next Round...';
             btn.onclick = () => {
+                if (!connectionReady || hostStopped) return;
                 socket.emit('confirmNextRound', { gameId: gameId! });
                 btn.disabled = true;
                 updateTimerBtn();
@@ -620,6 +797,7 @@ function updateUI(): void {
             const leftBtn = document.createElement('button');
             leftBtn.textContent = 'Fill from Left';
             leftBtn.onclick = () => {
+                if (!connectionReady || hostStopped) return;
                 socket.emit('fillChoice', { gameId: gameId!, direction: 'left' });
             };
             btnRow.appendChild(leftBtn);
@@ -627,6 +805,7 @@ function updateUI(): void {
             const rightBtn = document.createElement('button');
             rightBtn.textContent = 'Fill from Right';
             rightBtn.onclick = () => {
+                if (!connectionReady || hostStopped) return;
                 socket.emit('fillChoice', { gameId: gameId!, direction: 'right' });
             };
             btnRow.appendChild(rightBtn);
@@ -648,7 +827,7 @@ function updateUI(): void {
         // Playing
         turnIndicatorEl.appendChild(document.createTextNode(statusText));
         if (symbolMode && gameState.requiredColor) {
-            turnIndicatorEl.appendChild(createDisplaySymbol(gameState.requiredColor, 'required-symbol'));
+            turnIndicatorEl.appendChild(createRealisticSymbol(gameState.requiredColor, 'required-symbol'));
         }
 
         if (gameState.positionMode === 'random' && gameState.roundPositionInfo) {

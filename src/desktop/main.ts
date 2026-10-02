@@ -1,59 +1,43 @@
-import { app, BrowserWindow, clipboard, ipcMain, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell, type IpcMainInvokeEvent } from 'electron';
+import squirrelStartup from 'electron-squirrel-startup';
 import path from 'path';
+import { pathToFileURL } from 'url';
 
-import { setPublicOrigin, startServer, type RunningServer } from '../server/index.js';
+import { setPublicOrigin, startServer } from '../server/index.js';
 import { DirectConnectivityProvider } from './connectivity/direct-provider.js';
 import { NgrokConnectivityProvider } from './connectivity/ngrok-provider.js';
 import { ConnectivityProviderManager } from './connectivity/provider-manager.js';
-import type { ConnectivityMode } from './connectivity/types.js';
-import type { DesktopState, StartHostingRequest } from './contracts.js';
+import { HostingController, validateStartRequest } from './hosting-controller.js';
 import { TokenVault } from './token-vault.js';
+import { normalizeGameInvitation } from '../shared/invitation-url.js';
 
 const DEFAULT_DESKTOP_PORT = 32145;
-const manager = new ConnectivityProviderManager({
-    direct: () => new DirectConnectivityProvider(),
-    ngrok: () => new NgrokConnectivityProvider(),
-});
-
 let controlWindow: BrowserWindow | null = null;
-let gameWindow: BrowserWindow | null = null;
-let runningServer: RunningServer | null = null;
-let tokenVault: TokenVault | null = null;
-let savedNgrokToken: string | null = null;
-let state: DesktopState = {
-    status: 'idle',
-    localOrigin: '',
-    port: 0,
-    connectivity: null,
-    hasSavedNgrokToken: false,
-    canSaveNgrokToken: false,
-};
+let hosting: HostingController | null = null;
+let shutdownComplete = false;
+let shutdownStarted = false;
+
+if (process.env.KAMISADO_USER_DATA_DIR) {
+    app.setPath('userData', path.resolve(process.env.KAMISADO_USER_DATA_DIR));
+}
+if (process.platform === 'win32') app.setAppUserModelId('com.squirrel.Kamisado.Kamisado');
 
 function desktopAsset(...segments: string[]): string {
     return path.resolve(__dirname, '../../desktop', ...segments);
 }
 
 function requestedPort(): number {
-    const value = Number.parseInt(process.env.KAMISADO_DESKTOP_PORT || '', 10);
+    const value = Number(process.env.KAMISADO_DESKTOP_PORT);
     return Number.isInteger(value) && value > 0 && value <= 65535 ? value : DEFAULT_DESKTOP_PORT;
 }
 
-async function startLocalServer(): Promise<RunningServer> {
-    try {
-        return await startServer({ port: requestedPort(), host: '0.0.0.0' });
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
-        return startServer({ port: 0, host: '0.0.0.0' });
-    }
-}
-
-function createControlWindow(): void {
-    controlWindow = new BrowserWindow({
-        width: 600,
-        height: 760,
-        minWidth: 520,
-        minHeight: 680,
-        title: 'Kamisado Host',
+async function createControlWindow(): Promise<void> {
+    const window = new BrowserWindow({
+        width: 1180,
+        height: 900,
+        minWidth: 760,
+        minHeight: 640,
+        title: 'Kamisado',
         backgroundColor: '#11151c',
         show: false,
         webPreferences: {
@@ -63,71 +47,30 @@ function createControlWindow(): void {
             sandbox: true,
         },
     });
-
-    controlWindow.removeMenu();
-    void controlWindow.loadFile(desktopAsset('index.html'));
-    controlWindow.once('ready-to-show', () => controlWindow?.show());
-    controlWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-    controlWindow.on('closed', () => {
+    controlWindow = window;
+    window.removeMenu();
+    window.once('ready-to-show', () => window.show());
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    window.webContents.on('will-attach-webview', event => event.preventDefault());
+    window.webContents.on('will-frame-navigate', event => {
+        if (event.isMainFrame) {
+            event.preventDefault();
+            return;
+        }
+        // Only the embedded local game may navigate; it never receives the preload API.
+        try {
+            if (event.url !== 'about:blank' && new URL(event.url).origin !== hosting?.getState().localOrigin) {
+                event.preventDefault();
+            }
+        } catch {
+            event.preventDefault();
+        }
+    });
+    window.on('closed', () => {
         controlWindow = null;
-        if (!gameWindow) app.quit();
+        app.quit();
     });
-}
-
-async function openGameWindow(): Promise<void> {
-    if (!state.localOrigin) throw new Error('The local game server is not ready.');
-
-    if (gameWindow && !gameWindow.isDestroyed()) {
-        gameWindow.show();
-        gameWindow.focus();
-        return;
-    }
-
-    gameWindow = new BrowserWindow({
-        width: 1180,
-        height: 900,
-        minWidth: 760,
-        minHeight: 640,
-        title: 'Kamisado',
-        backgroundColor: '#15171c',
-        webPreferences: {
-            contextIsolation: true,
-            nodeIntegration: false,
-            sandbox: true,
-        },
-    });
-
-    gameWindow.removeMenu();
-    gameWindow.webContents.setWindowOpenHandler(({ url }) => {
-        if (url.startsWith('https://')) void shell.openExternal(url);
-        return { action: 'deny' };
-    });
-    gameWindow.webContents.on('will-navigate', (event, url) => {
-        if (!url.startsWith(state.localOrigin)) event.preventDefault();
-    });
-    gameWindow.on('closed', () => {
-        gameWindow = null;
-        if (!controlWindow) app.quit();
-    });
-
-    await gameWindow.loadURL(state.localOrigin);
-}
-
-function validateStartRequest(value: unknown): StartHostingRequest {
-    if (!value || typeof value !== 'object') throw new Error('Invalid hosting request.');
-    const request = value as Partial<StartHostingRequest>;
-    if (request.mode !== 'direct' && request.mode !== 'ngrok') throw new Error('Unknown connectivity mode.');
-    if (request.authToken !== undefined && (typeof request.authToken !== 'string' || request.authToken.length > 2048)) {
-        throw new Error('Invalid ngrok token.');
-    }
-    if (request.rememberAuthToken !== undefined && typeof request.rememberAuthToken !== 'boolean') {
-        throw new Error('Invalid token storage preference.');
-    }
-    if (request.advertisedOrigin !== undefined &&
-        (typeof request.advertisedOrigin !== 'string' || request.advertisedOrigin.length > 2048)) {
-        throw new Error('Invalid public address.');
-    }
-    return request as StartHostingRequest;
+    await window.loadFile(desktopAsset('index.html'));
 }
 
 function canUseSecureTokenStorage(): boolean {
@@ -135,128 +78,80 @@ function canUseSecureTokenStorage(): boolean {
     return process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text';
 }
 
-function updateTokenState(): void {
-    state = {
-        ...state,
-        hasSavedNgrokToken: savedNgrokToken !== null,
-        canSaveNgrokToken: tokenVault !== null,
-    };
-}
-
-function publicError(error: unknown): string {
-    if (error instanceof Error) return error.message.replace(/authtoken\s*[=:]\s*\S+/gi, 'authtoken: [hidden]');
-    return 'Unable to configure connectivity.';
+function requireTrustedShell(event: IpcMainInvokeEvent): HostingController {
+    if (!hosting || !controlWindow || event.sender !== controlWindow.webContents ||
+        event.senderFrame !== controlWindow.webContents.mainFrame ||
+        event.senderFrame.url !== pathToFileURL(desktopAsset('index.html')).href) {
+        throw new Error('This action is only available in the Kamisado desktop window.');
+    }
+    return hosting;
 }
 
 function registerIpcHandlers(): void {
-    ipcMain.handle('hosting:get-state', () => state);
-    ipcMain.handle('hosting:start', async (_event, rawRequest: unknown) => {
-        try {
-            const request = validateStartRequest(rawRequest);
-            state = { ...state, status: 'starting', connectivity: null, error: undefined };
-            const authToken = request.authToken?.trim() || savedNgrokToken || undefined;
-            const connectivity = await manager.start(request.mode as ConnectivityMode, {
-                port: state.port,
-                localOrigin: state.localOrigin,
-            }, {
-                authToken,
-                advertisedOrigin: request.advertisedOrigin,
-            });
-            if (request.mode === 'ngrok' && request.authToken?.trim() &&
-                request.rememberAuthToken !== undefined && tokenVault) {
-                try {
-                    if (request.rememberAuthToken) {
-                        await tokenVault.save(request.authToken);
-                        savedNgrokToken = request.authToken.trim();
-                    } else {
-                        await tokenVault.clear();
-                        savedNgrokToken = null;
-                    }
-                } catch (error) {
-                    console.warn('Unable to update secure ngrok settings:', publicError(error));
-                }
-            }
-            setPublicOrigin(connectivity.publicOrigin);
-            state = { ...state, status: 'ready', connectivity, error: undefined };
-            updateTokenState();
-            await openGameWindow();
-        } catch (error) {
-            await manager.stop().catch(() => undefined);
-            setPublicOrigin(null);
-            state = { ...state, status: 'error', connectivity: null, error: publicError(error) };
-        }
-        return state;
-    });
-    ipcMain.handle('settings:forget-ngrok-token', async () => {
-        await tokenVault?.clear();
-        savedNgrokToken = null;
-        updateTokenState();
-        return state;
-    });
-    ipcMain.handle('hosting:stop', async () => {
-        try {
-            await manager.stop();
-            setPublicOrigin(null);
-            state = { ...state, status: 'idle', connectivity: null, error: undefined };
-        } catch (error) {
-            state = { ...state, status: 'error', connectivity: null, error: publicError(error) };
-        }
-        return state;
-    });
-    ipcMain.handle('game:open', () => openGameWindow());
-    ipcMain.handle('clipboard:write', (_event, value: unknown) => {
+    ipcMain.handle('hosting:get-state', event => requireTrustedShell(event).getState());
+    ipcMain.handle('hosting:start', (event, request: unknown) => requireTrustedShell(event).start(validateStartRequest(request)));
+    ipcMain.handle('hosting:stop', event => requireTrustedShell(event).stop());
+    ipcMain.handle('settings:forget-ngrok-token', event => requireTrustedShell(event).forgetToken());
+    ipcMain.handle('clipboard:write', (event, value: unknown) => {
+        requireTrustedShell(event);
         if (typeof value !== 'string' || value.length > 4096) throw new Error('Invalid clipboard value.');
         clipboard.writeText(value);
     });
-    ipcMain.handle('external:open', async (_event, value: unknown) => {
+    ipcMain.handle('external:open', async (event, value: unknown) => {
+        requireTrustedShell(event);
         if (typeof value !== 'string') throw new Error('Invalid URL.');
         const url = new URL(value);
-        if (url.protocol !== 'https:') throw new Error('Only HTTPS links can be opened.');
+        if (url.protocol !== 'https:' || url.username || url.password) throw new Error('Only HTTPS links can be opened.');
         await shell.openExternal(url.href);
+    });
+    ipcMain.handle('game:join-invitation', async (event, value: unknown) => {
+        requireTrustedShell(event);
+        await shell.openExternal(normalizeGameInvitation(value));
     });
 }
 
-const hasSingleInstanceLock = app.requestSingleInstanceLock();
-if (!hasSingleInstanceLock) {
+if (squirrelStartup || !app.requestSingleInstanceLock()) {
     app.quit();
 } else {
     app.on('second-instance', () => {
-        const window = controlWindow || gameWindow;
-        if (window?.isMinimized()) window.restore();
-        window?.show();
-        window?.focus();
+        if (controlWindow?.isMinimized()) controlWindow.restore();
+        controlWindow?.show();
+        controlWindow?.focus();
     });
 
     app.whenReady().then(async () => {
-        registerIpcHandlers();
-        runningServer = await startLocalServer();
+        let vault: TokenVault | null = null;
+        let savedToken: string | null = null;
         if (canUseSecureTokenStorage()) {
-            tokenVault = new TokenVault(path.join(app.getPath('userData'), 'secure-settings.json'), {
+            vault = new TokenVault(path.join(app.getPath('userData'), 'secure-settings.json'), {
                 encrypt: value => safeStorage.encryptString(value),
                 decrypt: value => safeStorage.decryptString(value),
             });
-            savedNgrokToken = await tokenVault.load();
+            savedToken = await vault.load();
         }
-        state = {
-            status: 'idle',
-            localOrigin: `http://127.0.0.1:${runningServer.port}`,
-            port: runningServer.port,
-            connectivity: null,
-            hasSavedNgrokToken: savedNgrokToken !== null,
-            canSaveNgrokToken: tokenVault !== null,
-        };
-        createControlWindow();
-
-        app.on('activate', () => {
-            if (!controlWindow && !gameWindow) createControlWindow();
+        hosting = new HostingController({
+            manager: new ConnectivityProviderManager({
+                direct: () => new DirectConnectivityProvider(),
+                ngrok: () => new NgrokConnectivityProvider(),
+            }),
+            startServer, setPublicOrigin, port: requestedPort(), vault, savedToken,
         });
+        registerIpcHandlers();
+        await createControlWindow();
     }).catch(error => {
         console.error('Unable to start Kamisado Desktop:', error);
+        dialog.showErrorBox('Kamisado could not start', error instanceof Error ? error.message : 'Please try opening the app again.');
         app.quit();
     });
 
-    app.on('before-quit', () => {
-        void manager.stop().catch(() => undefined);
-        void runningServer?.close().catch(() => undefined);
+    app.on('before-quit', event => {
+        if (shutdownComplete || !hosting) return;
+        event.preventDefault();
+        if (shutdownStarted) return;
+        shutdownStarted = true;
+        void hosting.stop().finally(() => {
+            shutdownComplete = true;
+            app.quit();
+        });
     });
 }

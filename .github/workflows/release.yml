@@ -1,0 +1,110 @@
+name: Desktop downloads
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-downloads-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate release and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Check version tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node -e "const expected = 'v' + require('./package.json').version; if (process.env.RELEASE_TAG !== expected) throw new Error('Tag must match package.json version: ' + expected)"
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+
+  build:
+    name: Build installers and portable ZIP (${{ matrix.platform }})
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win32
+          - os: ubuntu-22.04
+            platform: linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install Linux packaging and display tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y fakeroot rpm xvfb
+      - run: npm ci
+      - run: npm run desktop:make -- --arch=x64
+      - name: Install guest browser (Windows)
+        if: runner.os == 'Windows'
+        run: npx playwright install chromium
+      - name: Install guest browser and system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
+      - name: Launch packaged application (Windows)
+        if: runner.os == 'Windows'
+        run: npm run test:desktop
+      - name: Launch packaged application (Linux)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum npm run test:desktop
+      - name: Collect downloads, offline guide, and SHA-256 checksums
+        run: node scripts/collect-desktop-artifacts.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kamisado-${{ matrix.platform }}-x64
+          path: out/release/*
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  draft-release:
+    name: Prepare draft GitHub release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: kamisado-*-x64
+          path: out/release
+          merge-multiple: true
+      - name: Create draft and attach downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft > release-state.json 2>/dev/null; then
+            node -e "if (!require('./release-state.json').isDraft) throw new Error('Refusing to replace a published release')"
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "Kamisado $RELEASE_TAG" --notes-file .github/release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" out/release/* --clobber

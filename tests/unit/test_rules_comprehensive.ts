@@ -272,35 +272,49 @@ test('M6: Single block — turn passes to opponent', () => {
         `Required color should be ${blockSquareColor} (blocked piece's square), got ${game.requiredColor}`);
 });
 
-test('M8: Double deadlock — last mover opponent wins', () => {
+test('M6: Multiple blocked towers can pass to a movable tower', () => {
     const game = createGame();
-    game.board = Array(8).fill(null).map(() => Array(8).fill(null));
-
-    // White blue at (5,3), blocked by black pieces
-    game.board[5][3] = { player: 'white', color: 'blue', sumo: 0, r: 5, c: 3 };
-    game.board[4][2] = { player: 'black', color: 'green', sumo: 0, r: 4, c: 2 };
-    game.board[4][3] = { player: 'black', color: 'purple', sumo: 0, r: 4, c: 3 };
-    game.board[4][4] = { player: 'black', color: 'pink', sumo: 0, r: 4, c: 4 };
-
-    // After block passes to black, black must move piece of BOARD_COLORS[5][3]
-    const whiteBlockedSquareColor = BOARD_COLORS[5][3]; // = blue
-    // Black's piece of that color is ALSO blocked
-    game.board[2][2] = { player: 'black', color: whiteBlockedSquareColor, sumo: 0, r: 2, c: 2 };
-    // Block black's piece too
-    game.board[3][1] = { player: 'white', color: 'red', sumo: 0, r: 3, c: 1 };
-    game.board[3][2] = { player: 'white', color: 'yellow', sumo: 0, r: 3, c: 2 };
-    game.board[3][3] = { player: 'white', color: 'orange', sumo: 0, r: 3, c: 3 };
-
+    setBoard(game, [
+        { player: 'white', color: 'blue', r: 5, c: 3 },
+        { player: 'white', color: 'brown', r: 5, c: 2 },
+        { player: 'white', color: 'orange', r: 5, c: 4 },
+        { player: 'white', color: 'yellow', r: 2, c: 0 },
+        { player: 'white', color: 'pink', r: 2, c: 1 },
+        { player: 'white', color: 'red', r: 3, c: 7 },
+        { player: 'black', color: 'purple', r: 4, c: 3 },
+        { player: 'black', color: 'pink', r: 4, c: 2 },
+        { player: 'black', color: 'red', r: 4, c: 4 },
+        { player: 'black', color: 'green', r: 4, c: 1 },
+        { player: 'black', color: 'brown', r: 1, c: 0 },
+    ]);
     game.turn = 'white';
     game.requiredColor = 'blue';
-    game.scores = { black: 0, white: 0 };
-
-    game.handleDeadlockCheck();
-
-    assert(game.roundState === 'waiting_confirmation', `Should be round over, got ${game.roundState}`);
-    assert(game.roundWinner !== null, 'There should be a round winner');
+    game.handleDeadlockCheck('black', 'blue');
+    assert(game.roundState === 'playing', 'Four forced passes must not end the round');
+    assert(game.turn === 'white' && String(game.requiredColor) === 'red');
+    assert(game.canMove('white', 'red'), 'The final forced tower must be playable');
 });
 
+test('M8: Repeating forced passes lose for the actual mover and promote the correct tower', () => {
+    for (const lastMover of ['black', 'white'] as const) {
+        const game = createGame();
+        setBoard(game, STANDARD_LAYOUT.flatMap((color, c) => [
+            { player: 'black' as const, color, r: 4, c, sumo: 1 },
+            { player: 'white' as const, color, r: 5, c, sumo: 1 },
+        ]));
+        game.turn = lastMover;
+        game.requiredColor = 'blue';
+        const winner = lastMover === 'black' ? 'white' : 'black';
+        const promoted = game.findPiece(winner, 'red')!;
+        promoted.sumo = 1;
+        game.handleDeadlockCheck(lastMover, 'red');
+        assert(game.roundState === 'waiting_confirmation');
+        assert(game.roundWinner === winner, 'The player who caused the cycle loses');
+        assert(promoted.sumo === 2, 'Promote the tower matching the last landing square');
+        assert(game.scores[winner] === 2, 'The promoted tower determines the round points');
+        assert(game.sumoRanks.get(`${winner}_red`) === 2, 'Promotion must persist');
+    }
+});
 test('Sumo piece with valid push is NOT deadlocked', () => {
     const game = createGame();
     game.board = Array(8).fill(null).map(() => Array(8).fill(null));
