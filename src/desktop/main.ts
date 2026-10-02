@@ -9,6 +9,7 @@ import { NgrokConnectivityProvider } from './connectivity/ngrok-provider.js';
 import { ConnectivityProviderManager } from './connectivity/provider-manager.js';
 import { HostingController, validateStartRequest } from './hosting-controller.js';
 import { TokenVault } from './token-vault.js';
+import { normalizeGameInvitation } from '../shared/invitation-url.js';
 
 const DEFAULT_DESKTOP_PORT = 32145;
 let controlWindow: BrowserWindow | null = null;
@@ -102,6 +103,10 @@ function registerIpcHandlers(): void {
         const url = new URL(value);
         if (url.protocol !== 'https:' || url.username || url.password) throw new Error('Only HTTPS links can be opened.');
         await shell.openExternal(url.href);
+    });
+    ipcMain.handle('game:join-invitation', async (event, value: unknown) => {
+        requireTrustedShell(event);
+        await shell.openExternal(normalizeGameInvitation(value));
     });
 }
 

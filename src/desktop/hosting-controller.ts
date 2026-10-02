@@ -23,6 +23,10 @@ export function validateStartRequest(value: unknown): StartHostingRequest {
     if (request.localOnly && request.mode !== 'direct') {
         throw new Error('Computer play does not use an Internet connection.');
     }
+    if (request.peerMode !== undefined &&
+        ((!['host', 'guest'].includes(request.peerMode)) || !request.localOnly || request.mode !== 'direct')) {
+        throw new Error('Choose Host Internet game or Join Internet game to start a peer connection.');
+    }
     if (request.authToken !== undefined && (typeof request.authToken !== 'string' || request.authToken.length > 2048)) {
         throw new Error('Invalid ngrok token.');
     }
@@ -101,7 +105,7 @@ export class HostingController {
         const localOnly = request.localOnly === true;
         // Rebinding would end games or expose an offline session to the network.
         // Require the user to end the existing session before changing its scope.
-        if (this.server && localOnly !== this.state.localOnly) {
+        if (this.server && (localOnly !== this.state.localOnly || request.peerMode !== this.state.peerMode)) {
             throw new Error('End the current session before switching between computer play and hosting friends.');
         }
         const wasRunning = this.server !== null;
@@ -115,15 +119,15 @@ export class HostingController {
                     if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error;
                     this.server = await this.dependencies.startServer({ port: 0, host });
                 }
-                this.state = { ...this.state, localOnly, port: this.server.port, localOrigin: `http://127.0.0.1:${this.server.port}` };
+                this.state = { ...this.state, localOnly, peerMode: request.peerMode, port: this.server.port, localOrigin: `http://127.0.0.1:${this.server.port}` };
             }
             const authToken = request.authToken?.trim() || this.sessionToken || this.savedToken || undefined;
             const connectivity: ConnectivityDetails = localOnly ? {
                 mode: 'direct',
                 publicOrigin: this.state.localOrigin,
                 reachableOrigins: [this.state.localOrigin],
-                title: 'Computer play',
-                description: 'Play on this computer without an Internet connection.',
+                title: request.peerMode ? 'Direct Internet play' : 'Computer play',
+                description: request.peerMode ? 'Exchange connection codes with your friend to play directly.' : 'Play on this computer without an Internet connection.',
             } : await this.dependencies.manager.start(request.mode, {
                 port: this.state.port, localOrigin: this.state.localOrigin,
             }, { authToken, advertisedOrigin: request.advertisedOrigin });
@@ -181,7 +185,7 @@ export class HostingController {
             try { await close(); }
             catch (error) { failures.push(this.publicError(error)); }
         }
-        this.state = { ...this.state, localOrigin: '', port: 0, localOnly: false, connectivity: null };
+        this.state = { ...this.state, localOrigin: '', port: 0, localOnly: false, peerMode: undefined, connectivity: null };
         return failures;
     }
 }

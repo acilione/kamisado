@@ -29,6 +29,19 @@ button.primary:hover:not(:disabled) { background: #4a84ed; }
 .choice-title em { margin-left: 7px; padding: 3px 6px; border-radius: 5px; color: #bcd2ff; background: rgba(79, 130, 220, .25); font-size: 9px; font-style: normal; letter-spacing: .05em; text-transform: uppercase; }
 .choice small { color: #9da9bb; font-weight: 450; line-height: 1.4; }
 .arrow { color: #8ca9d8; font-size: 20px; }
+.host-steps { display: grid; gap: 8px; margin: 18px 0 25px; padding-left: 20px; color: #aab6c7; font-size: 13px; line-height: 1.5; }
+.host-steps li { padding-left: 3px; }
+.host-steps li::marker { color: #87b1fa; font-weight: 650; }
+.peer-help { margin-top: 13px !important; color: #9daec6; line-height: 1.6; }
+.join-card { margin-top: 28px; padding-top: 25px; border-top: 1px solid #354052; }
+.join-card h2 { font-size: 18px; }
+.join-card > p { margin: 8px 0 18px; color: #aab6c7; font-size: 13px; line-height: 1.55; }
+.join-card label { display: block; margin-bottom: 7px; color: #d1dbea; font-size: 12px; font-weight: 650; }
+.join-fields { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.join-fields button, #online-button { padding: 10px 14px; font-size: 13px; }
+#join-help { margin-top: 9px !important; color: #98a7ba; line-height: 1.5; }
+#join-result { color: #b6d1fc; font-size: 13px; line-height: 1.5; }
+#join-result.error { color: #ffafb9; }
 
 .token-card { padding: 20px; border: 1px solid #334157; border-radius: 14px; background: rgba(20, 27, 38, .9); }
 .token-card > p { color: #a3afbf; line-height: 1.5; }
@@ -49,6 +62,8 @@ summary { cursor: pointer; user-select: none; }
 .advanced-content > label { display: block; margin-bottom: 7px; color: #bdc7d5; font-weight: 650; }
 .advanced-content label span { font-weight: 450; }
 .advanced-content > p { margin: 7px 0 14px; }
+#internet-options .advanced-content, #connection-help .advanced-content { color: #aab6c7; font-size: 12px; line-height: 1.6; }
+#connection-help ul { display: grid; gap: 9px; margin: 0; padding-left: 18px; }
 .saved-setting, .local-address { display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid #293343; }
 .saved-setting button { padding: 6px 8px; font-size: 11px; }
 .saved-setting span { margin-right: auto; }
@@ -70,6 +85,8 @@ summary { cursor: pointer; user-select: none; }
 .origin-row small { color: #8491a4; font-size: 9px; text-transform: uppercase; letter-spacing: .06em; }
 .origin-row code { overflow: hidden; color: #d9e4f5; text-overflow: ellipsis; white-space: nowrap; }
 .origin-row button { flex: 0 0 auto; padding: 7px 10px; font-size: 11px; }
+.origin-row .origin-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
+.origin-actions button[data-stay-disabled="true"] { cursor: default; color: #b5ceef; opacity: .8; }
 .actions { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 18px; }
 .actions > button:not(.primary) { padding: 10px 14px; }
 .hidden { display: none !important; }
@@ -79,6 +96,7 @@ summary { cursor: pointer; user-select: none; }
     main { padding: 26px 18px; }
     .choice-title em { display: none; }
     .actions { grid-template-columns: 1fr; }
+    .join-fields { grid-template-columns: 1fr; }
 }
 
 /* The connection screen and game share one native window. */
@@ -114,4 +132,6 @@ button.danger:hover:not(:disabled) { background: #83434e; }
     main { padding: 32px 18px; }
     #connection-label { font-size: 11px; }
     .stop-confirmation .actions { grid-template-columns: 1fr; }
+    .origin-row { flex-wrap: wrap; }
+    .origin-row .origin-actions { width: 100%; justify-content: flex-end; }
 }

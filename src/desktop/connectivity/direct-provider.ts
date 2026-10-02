@@ -1,4 +1,5 @@
 import { networkInterfaces } from 'os';
+import { isIPv4 } from 'net';
 
 import type {
     ConnectivityDetails,
@@ -27,37 +28,56 @@ function isPrivateIpv4(address: string): boolean {
         (octets[0] === 192 && octets[1] === 168);
 }
 
-function interfaceScore(name: string, address: string): number {
-    let score = isPrivateIpv4(address) ? 20 : 10;
-    if (/wi-?fi|wireless|ethernet|en\d|eth\d/i.test(name)) score += 20;
-    if (/docker|wsl|vethernet|hyper-v|virtualbox|vmware|loopback/i.test(name)) score -= 50;
-    if (address.startsWith('169.254.')) score -= 100;
-    return score;
+type InterfaceReader = () => ReturnType<typeof networkInterfaces>;
+type DirectAddress = { address: string; name: string; score: number; kind: 'network' | 'vpn' | 'virtual' };
+
+function isUsableIpv4(address: string): boolean {
+    if (!isIPv4(address)) return false;
+    const [first, second] = address.split('.').map(Number);
+    return first !== 0 && first !== 127 && first < 224 && !(first === 169 && second === 254);
 }
 
-export function listDirectOrigins(port: number): string[] {
-    const addresses: Array<{ address: string; score: number }> = [];
+function describeInterface(name: string, address: string): DirectAddress {
+    let score = isPrivateIpv4(address) ? 20 : 10;
+    let kind: DirectAddress['kind'] = 'network';
+    if (/(?:^|[\s(_-])(?:wi-?fi|wireless|ethernet|wlan|wlp|wlx|eth\d|en\d|en[ops]\d)/i.test(name)) score += 30;
+    if (/tailscale|wireguard|zerotier|hamachi|vpn|utun|(?:^|[\s(_-])(?:tun|tap|wg)\d*(?:$|[\s)_-])/i.test(name)) {
+        kind = 'vpn';
+        score -= 30;
+    }
+    if (/docker|wsl|veth|hyper-v|virtualbox|vbox|vmware|loopback|virbr|br-|bridge|podman|lxc/i.test(name)) {
+        kind = 'virtual';
+        score -= 80;
+    }
+    return { address, name, score, kind };
+}
 
-    for (const [name, entries] of Object.entries(networkInterfaces())) {
+function directAddresses(interfaces: ReturnType<InterfaceReader>): DirectAddress[] {
+    const addresses: DirectAddress[] = [];
+
+    for (const [name, entries] of Object.entries(interfaces)) {
         for (const entry of entries || []) {
-            if (entry.family !== 'IPv4' || entry.internal) continue;
-            addresses.push({ address: entry.address, score: interfaceScore(name, entry.address) });
+            if (entry.family !== 'IPv4' || entry.internal || !isUsableIpv4(entry.address)) continue;
+            addresses.push(describeInterface(name, entry.address));
         }
     }
 
-    return [...new Map(
-        addresses
-            .filter(entry => entry.score > -80)
-            .sort((a, b) => b.score - a.score)
-            .map(entry => [entry.address, `http://${entry.address}:${port}`]),
-    ).values()];
+    addresses.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name) || a.address.localeCompare(b.address));
+    return addresses.filter((entry, index, all) => all.findIndex(other => other.address === entry.address) === index);
+}
+
+export function listDirectOrigins(port: number, interfaces = networkInterfaces()): string[] {
+    return directAddresses(interfaces).map(entry => `http://${entry.address}:${port}`);
 }
 
 export class DirectConnectivityProvider implements ConnectivityProvider {
     readonly mode = 'direct' as const;
 
+    constructor(private readonly readInterfaces: InterfaceReader = networkInterfaces) {}
+
     async start(context: ProviderContext, options: ProviderOptions): Promise<ConnectivityDetails> {
-        const lanOrigins = listDirectOrigins(context.port);
+        const addresses = directAddresses(this.readInterfaces());
+        const lanOrigins = addresses.map(entry => `http://${entry.address}:${context.port}`);
         const advertisedOrigin = options.advertisedOrigin?.trim()
             ? normalizeAdvertisedOrigin(options.advertisedOrigin.trim())
             : null;
@@ -69,13 +89,23 @@ export class DirectConnectivityProvider implements ConnectivityProvider {
             mode: this.mode,
             publicOrigin: advertisedOrigin || lanOrigins[0] || context.localOrigin,
             reachableOrigins,
-            title: 'Direct host ready',
+            title: !advertisedOrigin && !lanOrigins.length ? 'No shared network detected' : 'Direct host ready',
             description: advertisedOrigin
                 ? 'Players connect directly to the address you supplied.'
-                : 'Players on your local network can connect directly to this computer.',
+                : !lanOrigins.length
+                    ? 'This game currently opens only on this computer.'
+                    : addresses[0].kind === 'vpn'
+                        ? 'Friends connected to the same VPN can join using your invitation.'
+                        : addresses[0].kind === 'virtual'
+                            ? 'Only a virtual network address was detected.'
+                            : 'Players on your local network can connect directly to this computer.',
             warning: advertisedOrigin
                 ? undefined
-                : 'Internet play requires port forwarding and a public address, or use ngrok instead.',
+                : !lanOrigins.length
+                    ? 'Other devices cannot connect yet. Connect this computer to Wi-Fi or Ethernet, then refresh the connection.'
+                    : addresses[0].kind === 'virtual'
+                        ? 'This address may not reach other devices. Connect to Wi-Fi or Ethernet, then refresh and choose that address.'
+                        : 'Both devices must share a reachable network. If a friend cannot connect, check the selected address and allow Kamisado through the firewall on your private network.',
         };
     }
 

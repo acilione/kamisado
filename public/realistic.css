@@ -1,4 +1,4 @@
-/* Physical-board views. The simple view remains available on every device. */
+/* Physical-board views. Realistic 2D is the default and the WebGL fallback. */
 .board-view-label {
     display: flex;
     align-items: center;

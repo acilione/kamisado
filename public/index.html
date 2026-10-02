@@ -17,11 +17,30 @@
 <body>
     <div id="app">
         <p id="connection-notice" class="hidden" role="status" aria-live="polite"></p>
+        <details id="peer-panel" class="hidden" open>
+            <summary id="peer-title">Internet P2P connection</summary>
+            <p id="peer-instructions"></p>
+            <div id="peer-steps">
+                <div id="peer-incoming-section">
+                    <label id="peer-incoming-label" for="peer-incoming">Your friend’s connection code</label>
+                    <textarea id="peer-incoming" rows="3" maxlength="65536" spellcheck="false" autocomplete="off" placeholder="Paste the whole code here"></textarea>
+                    <button id="peer-connect" type="button">Connect to friend</button>
+                </div>
+                <div id="peer-outgoing-section">
+                    <button id="peer-generate" type="button">Create invitation code</button>
+                    <label id="peer-outgoing-label" for="peer-outgoing">Your connection code</label>
+                    <textarea id="peer-outgoing" rows="3" readonly spellcheck="false" aria-describedby="peer-code-help"></textarea>
+                    <button id="peer-copy" type="button" disabled>Copy code</button>
+                </div>
+            </div>
+            <p id="peer-status" role="status" aria-live="polite"></p>
+            <p id="peer-code-help" class="option-help">Keep both apps open. Codes connect these two sessions. A public STUN service discovers network addresses; game data travels directly between players. Some routers block direct connections.</p>
+        </details>
         <!-- Menu Screen -->
         <div id="menu-screen">
             <h1>Kamisado</h1>
             <p class="tagline">Color decides your next move.</p>
-            <div class="menu-group">
+            <div id="create-game-options" class="menu-group">
                 <h3>Create Game</h3>
                 <label for="opponent">Opponent:
                     <select id="opponent">
@@ -70,7 +89,6 @@
                     <label class="board-view-label" for="board-view">
                         Board view
                         <select id="board-view" class="board-view-select">
-                            <option value="simple">Simple</option>
                             <option value="realistic-2d">Realistic 2D</option>
                             <option value="realistic-3d">Realistic 3D</option>
                         </select>
@@ -83,9 +101,9 @@
                 <button id="create-btn" disabled>Create Game</button>
             </div>
 
-            <div class="divider">OR</div>
+            <div id="join-separator" class="divider">OR</div>
 
-            <div class="menu-group">
+            <div id="join-game-options" class="menu-group">
                 <h3>Join Game</h3>
                 <label for="join-id" class="sr-only">Game ID or invitation link</label>
                 <input type="text" id="join-id" placeholder="Game ID or invitation link" autocomplete="off">
@@ -99,9 +117,9 @@
                     <p><strong>Goal:</strong> Move one of your towers to the opponent's home row (the row closest to them).</p>
 
                     <p><strong>Setup:</strong> Each player has 8 colored towers on their home row. The board has 64 colored squares in a fixed pattern. Black moves first.</p>
-                    <p><strong>Symbol mode:</strong> Turn it on in the menu options or below the board. Simple view uses neutral squares and matching shapes. Realistic views reproduce the physical color-blind board: colored squares with pale characters in opposite corners, matching the characters on the towers. Match the square's marking to the tower's marking. Black and white towers identify the players; sumo ranks remain separate numbers. Open the symbol key below the board for the markings used by your current view.</p>
+                    <p><strong>Symbol mode:</strong> Turn it on in the menu options or below the board. Both views reproduce the physical color-blind board: colored squares with pale characters in opposite corners, matching the characters on the towers. Match the square's marking to the tower's marking. Black and white towers identify the players; sumo ranks remain separate numbers. Open the symbol key below the board to see the markings.</p>
 
-                    <p><strong>Board views:</strong> Choose Simple, Realistic 2D, or Realistic 3D in the menu or below the board. The realistic views recreate the physical game's framed board and octagonal towers. In 3D, click a tower then a destination to move, drag to rotate, and scroll or pinch to zoom. Use Reset view to return to your side. Symbols work in every view.</p>
+                    <p><strong>Board views:</strong> Choose Realistic 2D or Realistic 3D in the menu or below the board. Both views recreate the physical game's framed board and octagonal towers. In 3D, click a tower then a destination to move, drag to rotate, and scroll or pinch to zoom. Use Reset view to return to your side. Symbols work in both views.</p>
 
                     <h4 style="margin:12px 0 6px;">Movement</h4>
                     <ul style="padding-left:20px;margin:0;">
@@ -174,7 +192,6 @@
                     <label class="board-view-label" for="game-board-view">
                         View
                         <select id="game-board-view" class="board-view-select">
-                            <option value="simple">Simple</option>
                             <option value="realistic-2d">Realistic 2D</option>
                             <option value="realistic-3d">Realistic 3D</option>
                         </select>
@@ -186,7 +203,7 @@
                 </div>
                 <details id="symbol-key" class="hidden">
                     <summary>Symbol key</summary>
-                    <p id="symbol-key-help">Match the square's shape to the shape inside a tower.</p>
+                    <p id="symbol-key-help">Match the printed character on a square to the same character on a tower.</p>
                     <ul id="symbol-legend" aria-label="Color and symbol key"></ul>
                 </details>
             </div>

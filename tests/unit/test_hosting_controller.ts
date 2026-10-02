@@ -55,6 +55,8 @@ async function main(): Promise<void> {
     assert.throws(() => validateStartRequest({ mode: 'ngrok', authToken: 42 }), /Invalid ngrok token/);
     assert.throws(() => validateStartRequest({ mode: 'direct', localOnly: 'true' }), /Invalid local play/);
     assert.throws(() => validateStartRequest({ mode: 'ngrok', localOnly: true }), /Computer play/);
+    assert.throws(() => validateStartRequest({ mode: 'direct', peerMode: 'host' }), /peer connection/);
+    assert.throws(() => validateStartRequest({ mode: 'direct', localOnly: true, peerMode: 'other' }), /peer connection/);
     const host = fixture();
     assert.equal(host.controller.getState().status, 'idle');
     assert.equal(host.events.length, 0, 'Opening the app must not start a listener');
@@ -159,6 +161,18 @@ async function main(): Promise<void> {
     assert.equal(afterComputer.status, 'ready');
     assert.equal(local.boundHosts.at(-1), '0.0.0.0', 'Hosting friends is available after ending an offline session');
     await local.controller.stop();
+    const peers = fixture();
+    for (const peerMode of ['host', 'guest'] as const) {
+        const state = await peers.controller.start({ mode: 'direct', localOnly: true, peerMode });
+        assert.equal(state.peerMode, peerMode);
+        assert.equal(state.status, 'ready');
+        assert.equal(peers.boundHosts.at(-1), '127.0.0.1', 'Internet P2P must not expose an HTTP listener to the network');
+        assert.equal(peers.events.some(event => event.startsWith('start:')), false, 'Direct peers do not open a tunnel');
+        await assert.rejects(peers.controller.start({ mode: 'direct', localOnly: true }), /End the current session/);
+        await assert.rejects(peers.controller.start({ mode: 'direct', localOnly: true, peerMode: peerMode === 'host' ? 'guest' : 'host' }), /End the current session/);
+        const stopped = await peers.controller.stop();
+        assert.equal(stopped.peerMode, undefined);
+    }
     console.log('Desktop hosting tests passed: serialized lifecycle, offline scope, port fallback, recovery, token storage.');
 }
 

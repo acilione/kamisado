@@ -3,7 +3,7 @@ import http from 'http';
 import { randomBytes } from 'crypto';
 import { Server, type Socket } from 'socket.io';
 import path from 'path';
-import type { AddressInfo } from 'net';
+import type { AddressInfo, Socket as TcpSocket } from 'net';
 
 import { KamisadoGame } from './game.js';
 import { AI_LEVELS, isAiLevel } from '../shared/ai-levels.js';
@@ -689,6 +689,11 @@ export async function startServer(options: ServerStartOptions = {}): Promise<Run
 async function listen(options: ServerStartOptions): Promise<RunningServer> {
     stoppingServer = false;
     const server = http.createServer(app);
+    const connections = new Set<TcpSocket>();
+    server.on('connection', connection => {
+        connections.add(connection);
+        connection.once('close', () => connections.delete(connection));
+    });
     const socketServer = new Server<ClientToServerEvents, ServerToClientEvents>(server);
     io = socketServer;
     socketServer.on('connection', onConnection);
@@ -742,11 +747,20 @@ async function listen(options: ServerStartOptions): Promise<RunningServer> {
             playerSessions.clear();
             publicOrigin = null;
             closing = Promise.all([drained, workersStopped]).then(() => new Promise<void>((resolve, reject) => {
-                socketServer.close(error => {
+                // Browsers may preconnect without sending HTTP headers, or leave
+                // an upgrade unfinished. Those sockets can hold HTTP close open
+                // indefinitely, even after Socket.IO has disconnected its clients.
+                // Give the shutdown notice time to arrive, then release leftovers.
+                const deadline = setTimeout(() => {
+                    for (const connection of connections) connection.destroy();
+                }, 1000);
+                const finish = (error?: Error) => {
+                    clearTimeout(deadline);
                     activeServer = null;
                     io = undefined;
                     error ? reject(error) : resolve();
-                });
+                };
+                void socketServer.close(finish).catch(finish);
             }));
             return closing;
         },

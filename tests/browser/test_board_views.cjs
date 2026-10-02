@@ -9,7 +9,6 @@ const { chromium } = require('playwright');
 const { KamisadoGame } = require('../../dist/server/game.js');
 const { BOARD_COLORS } = require('../../dist/shared/constants.js');
 const { COLOR_CHARACTER_PATHS, REALISTIC_COLORS } = require('../../dist/client/realistic-art.js');
-const { COLOR_SYMBOLS } = require('../../dist/client/symbols.js');
 
 const root = path.resolve(__dirname, '../..');
 const publicRoot = path.join(root, 'public');
@@ -147,8 +146,8 @@ async function assert2DBoard(page, symbols) {
   assert.equal(await page.locator('#board .sumo-rank').textContent(), '2');
 }
 
-async function assertSymbolLabels(page, realistic, requiredColor = null) {
-  const expected = color => realistic ? COLOR_CHARACTER_PATHS[color] : COLOR_SYMBOLS[color].path;
+async function assertSymbolLabels(page, requiredColor = null) {
+  const expected = color => COLOR_CHARACTER_PATHS[color];
   const legend = await page.locator('#symbol-legend .color-symbol').evaluateAll(symbols => symbols.map(symbol => ({
     color: symbol.dataset.color, path: symbol.querySelector('svg path')?.getAttribute('d'),
   })));
@@ -162,19 +161,10 @@ async function assertSymbolLabels(page, realistic, requiredColor = null) {
     assert.equal(await required.isVisible(), true, 'the required-move symbol must remain visible');
     assert.equal(await required.getAttribute('data-color'), requiredColor);
     assert.equal(await required.locator('svg path').getAttribute('d'), expected(requiredColor));
-    const name = realistic ? requiredColor : COLOR_SYMBOLS[requiredColor].name;
-    assert.ok((await page.locator('#turn-indicator').textContent()).includes('Must move ' + name.toUpperCase()),
+    assert.ok((await page.locator('#turn-indicator').textContent()).includes('Must move ' + requiredColor.toUpperCase()),
       'the move instruction must use the name belonging to the active symbols');
   } else {
     assert.equal(await required.count(), 0);
-  }
-  if (!realistic) {
-    const symbols = await page.locator('#board .square-symbol, #board .tower-symbol').evaluateAll(elements => elements.map(symbol => ({
-      color: symbol.dataset.color, path: symbol.querySelector('svg path')?.getAttribute('d'),
-    })));
-    assert.equal(symbols.length, 80, 'simple symbol mode must retain a shape for each square and tower');
-    for (const symbol of symbols) assert.equal(symbol.path, COLOR_SYMBOLS[symbol.color].path);
-    assert.equal(await page.locator('#board .realistic-square-symbol').count(), 0);
   }
 }
 
@@ -272,7 +262,7 @@ async function assert3DInput(browser, origin, errors, color) {
     window.__boardFixture.moves.length = 0;
     window.__boardFixture.dispatch('gameStateUpdate', state);
   }, state);
-  await page.locator('#game-board-view').selectOption('simple');
+  await page.locator('#game-board-view').selectOption('realistic-2d');
   await page.locator('#game-board-view').selectOption('realistic-3d');
   await canvas.focus();
   await canvas.press('Enter');
@@ -305,7 +295,15 @@ async function run() {
     context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
     const page = await context.newPage();
     await page.goto(origin);
-    await page.locator('#board-view').selectOption('realistic-2d');
+    assert.equal(await page.locator('#board-view').inputValue(), 'realistic-2d', 'new players must start in the realistic 2D view');
+    for (const selector of ['#board-view', '#game-board-view']) {
+      assert.deepEqual(await page.locator(selector + ' option').evaluateAll(options => options.map(option => option.value)),
+        ['realistic-2d', 'realistic-3d'], 'only the realistic 2D and 3D views must be offered');
+    }
+    await page.evaluate(() => localStorage.setItem('kamisado_boardView', 'simple'));
+    await page.reload();
+    assert.equal(await page.locator('#board-view').inputValue(), 'realistic-2d', 'a legacy Simple preference must restore the realistic 2D view');
+    assert.equal(await page.evaluate(() => localStorage.getItem('kamisado_boardView')), 'realistic-2d', 'the migrated preference must be saved');
     await page.locator('#symbol-mode').check();
     assert.equal(await page.locator('#game-board-view').inputValue(), 'realistic-2d');
     assert.equal(await page.locator('#game-symbol-mode').isChecked(), true);
@@ -316,7 +314,7 @@ async function run() {
     await page.locator('#create-btn').click();
     await page.locator('#game-screen').waitFor({ state: 'visible' });
     await assert2DBoard(page, true);
-    await assertSymbolLabels(page, true);
+    await assertSymbolLabels(page);
     await page.screenshot({ path: path.join(screenshots, 'realistic-2d-symbols-desktop.png'), fullPage: true });
     assert.deepEqual(await page.locator('#board .cell').first().evaluate(cell => [cell.dataset.r, cell.dataset.c]), ['7', '7'], 'black must see its home row at the bottom');
     await page.locator('#game-symbol-mode').uncheck();
@@ -330,7 +328,7 @@ async function run() {
     await assertWebGLCanvas(page, 'realistic-3d-desktop.png');
     await page.locator('#reset-camera').click();
     await page.locator('#game-symbol-mode').check();
-    await assertSymbolLabels(page, true);
+    await assertSymbolLabels(page);
     await assertWebGLCanvas(page, 'realistic-3d-symbols-desktop.png');
     await page.locator('#game-board-view').selectOption('realistic-2d');
     assert.equal(await page.locator('.cell[data-r="0"][data-c="0"]').evaluate(cell => cell.classList.contains('selected')), true, 'changing view must preserve a selected tower');
@@ -344,18 +342,16 @@ async function run() {
     await page.evaluate(state => window.__boardFixture.dispatch('gameStateUpdate', state), afterMove.toJson());
     assert.equal(await page.locator('.cell[data-r="1"][data-c="0"] .piece').count(), 1);
     assert.equal(await page.locator('.cell.selected').count(), 0);
-    await assertSymbolLabels(page, true, afterMove.requiredColor);
+    await assertSymbolLabels(page, afterMove.requiredColor);
     await page.locator('#game-board-view').selectOption('realistic-3d');
-    await assertSymbolLabels(page, true, afterMove.requiredColor);
+    await assertSymbolLabels(page, afterMove.requiredColor);
     await assertWebGLCanvas(page, 'realistic-3d-after-move.png');
-    await page.locator('#game-board-view').selectOption('simple');
+    await page.locator('#game-board-view').selectOption('realistic-2d');
     assert.equal(await page.locator('#board').isVisible(), true);
     assert.equal(await page.locator('#board-3d').isVisible(), false);
-    assert.equal(await page.locator('#board .realistic-tower').count(), 0);
-    assert.equal(await page.evaluate(() => localStorage.getItem('kamisado_boardView')), 'simple');
-    await assertSymbolLabels(page, false, afterMove.requiredColor);
-    await page.locator('#game-board-view').selectOption('realistic-2d');
-    await assertSymbolLabels(page, true, afterMove.requiredColor);
+    assert.equal(await page.locator('#board .realistic-tower').count(), 16);
+    assert.equal(await page.evaluate(() => localStorage.getItem('kamisado_boardView')), 'realistic-2d');
+    await assertSymbolLabels(page, afterMove.requiredColor);
 
     for (const role of ['white', 'spectator']) {
       const roleContext = await browser.newContext({ viewport: { width: 1000, height: 1000 } });

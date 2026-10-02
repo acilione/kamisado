@@ -5,6 +5,7 @@ export interface DesktopState {
     localOrigin: string;
     port: number;
     localOnly: boolean;
+    peerMode?: 'host' | 'guest';
     connectivity: ConnectivityDetails | null;
     hasSavedNgrokToken: boolean;
     hasSessionNgrokToken: boolean;
@@ -15,6 +16,7 @@ export interface DesktopState {
 export interface StartHostingRequest {
     mode: ConnectivityMode;
     localOnly?: boolean;
+    peerMode?: 'host' | 'guest';
     authToken?: string;
     rememberAuthToken?: boolean;
     advertisedOrigin?: string;
@@ -26,5 +28,6 @@ export interface KamisadoDesktopApi {
     stopHosting(): Promise<DesktopState>;
     forgetNgrokToken(): Promise<DesktopState>;
     copyText(value: string): Promise<void>;
+    joinGame(url: string): Promise<void>;
     openExternal(url: string): Promise<void>;
 }

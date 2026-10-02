@@ -20,7 +20,7 @@
         <header>
             <p class="eyebrow">Kamisado</p>
             <h1 id="page-title">Choose your game</h1>
-            <p id="page-intro" class="intro">Play against the computer, or invite a friend.</p>
+            <p id="page-intro" class="intro">Play with a friend on your home network or over a direct Internet connection.</p>
         </header>
 
         <section id="status-panel" class="hidden" aria-label="Current connection">
@@ -51,7 +51,31 @@
         <section id="setup-panel" aria-label="Choose how to play">
             <p id="switch-hint" class="fine-print hidden">You can change the connection without leaving your game. Its invitation will update automatically.</p>
             <div class="quick-actions">
-                <button id="computer-button" class="choice primary-choice" type="button">
+                <button id="peer-host-button" class="choice primary-choice" type="button">
+                    <span class="choice-icon" aria-hidden="true">↗</span>
+                    <span class="choice-copy">
+                        <span class="choice-title">Host Internet game</span>
+                        <small>You both open the app. Share an invitation code, then paste your friend's reply.</small>
+                    </span>
+                    <span class="arrow" aria-hidden="true">→</span>
+                </button>
+                <button id="peer-join-button" class="choice" type="button">
+                    <span class="choice-icon" aria-hidden="true">↙</span>
+                    <span class="choice-copy">
+                        <span class="choice-title">Join Internet game</span>
+                        <small>Paste your friend's invitation code and send back a reply. No account needed.</small>
+                    </span>
+                    <span class="arrow" aria-hidden="true">→</span>
+                </button>
+                <button id="lan-button" class="choice" type="button">
+                    <span class="choice-icon" aria-hidden="true">⌂</span>
+                    <span class="choice-copy">
+                        <span class="choice-title">Host a LAN game</span>
+                        <small>Same Wi-Fi or Ethernet network. No account or Internet connection needed.</small>
+                    </span>
+                    <span class="arrow" aria-hidden="true">→</span>
+                </button>
+                <button id="computer-button" class="choice" type="button">
                     <span class="choice-icon" aria-hidden="true">◇</span>
                     <span class="choice-copy">
                         <span class="choice-title">Play computer</span>
@@ -59,29 +83,30 @@
                     </span>
                     <span class="arrow" aria-hidden="true">→</span>
                 </button>
-                <button id="lan-button" class="choice" type="button">
-                    <span class="choice-icon" aria-hidden="true">⌂</span>
-                    <span class="choice-copy">
-                        <span class="choice-title">Same Wi-Fi network</span>
-                        <small>No account or Internet needed. Connect both devices to the same network.</small>
-                    </span>
-                    <span class="arrow" aria-hidden="true">→</span>
-                </button>
-                <button id="online-button" class="choice" type="button">
-                    <span class="choice-icon" aria-hidden="true">◎</span>
-                    <span class="choice-copy">
-                        <span class="choice-title">Play over the Internet</span>
-                        <small id="online-description">For friends elsewhere. Requires a free ngrok account on this computer.</small>
-                    </span>
-                    <span class="arrow" aria-hidden="true">→</span>
-                </button>
             </div>
+
+            <p id="peer-help" class="fine-print peer-help">Internet games connect the two apps directly, with no central game server. Some networks block direct connections; the connection screen will explain if this happens.</p>
+            <ol id="host-steps" class="host-steps" aria-label="How to host a LAN game">
+                <li>Host a LAN game, then choose your game options.</li>
+                <li>Share the invitation link or let your friend scan its QR code.</li>
+                <li>Keep this app open and this computer awake while you play.</li>
+            </ol>
+
+            <details id="internet-options">
+                <summary>Other Internet connection options</summary>
+                <div class="advanced-content">
+                    <p>For direct play over the Internet, connect both computers to the same private VPN and use the LAN invitation. Setting up the VPN is separate from this app.</p>
+                    <p>Alternatively, ngrok relays the connection through its service. It needs Internet access and an ngrok account on the host computer.</p>
+                    <button id="online-button" type="button">Connect with ngrok</button>
+                    <p id="online-description" class="fine-print">Only the host needs an account. Guests join in their browser.</p>
+                </div>
+            </details>
 
             <div id="token-setup" class="token-card hidden">
                 <button id="token-back" class="back" type="button">← Back</button>
                 <p class="step-label">Internet connection</p>
                 <h2>Connect ngrok</h2>
-                <p>Your friend can join from another network using a secure invitation link.</p>
+                <p>ngrok relays your game through its online service, so a friend on another network can join in a browser.</p>
                 <ol>
                     <li><button type="button" class="link" data-external="https://dashboard.ngrok.com/get-started/your-authtoken">Open ngrok and copy your authtoken</button></li>
                     <li>Paste it below.</li>
@@ -110,8 +135,34 @@
                     <div class="local-address"><span>Local server</span><code id="local-origin">Not running</code></div>
                 </div>
             </details>
-            <p class="setup-note">Playing with a friend? They join your invitation in a browser.</p>
         </section>
+
+        <section id="join-panel" class="join-card" aria-labelledby="join-title">
+            <h2 id="join-title">Join with a link</h2>
+            <p>For a LAN or relay game, paste your friend's invitation to play in your usual browser. For an Internet invitation code, choose Join Internet game above.</p>
+            <form id="join-form">
+                <label for="join-invitation">Invitation link</label>
+                <div class="join-fields">
+                    <input id="join-invitation" type="text" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="http://192.168.1.10:32145/game/…" aria-describedby="join-help join-result" required>
+                    <button id="join-button" type="submit">Join game</button>
+                </div>
+                <p id="join-help" class="fine-print">For LAN games, connect to the same home network as the host.</p>
+                <p id="join-result" class="hidden" role="status" aria-live="polite"></p>
+            </form>
+        </section>
+
+        <details id="connection-help">
+            <summary>Having trouble connecting?</summary>
+            <div class="advanced-content">
+                <ul>
+                    <li>Use the same home network. Wi-Fi and Ethernet can play together; guest or public Wi-Fi may keep devices apart.</li>
+                    <li>On the host computer, allow Kamisado through the firewall for your trusted private network when asked.</li>
+                    <li>For home-network play, temporarily disconnect a VPN if it blocks local devices. For remote play over a private VPN, both players must use that same VPN.</li>
+                    <li>Keep the host app open and the computer awake. If the host reconnects or restarts the app, ask for a fresh invitation.</li>
+                    <li>If the host has several addresses, open Connection details and choose another with “Use for invitation.” Share the updated invitation from your game.</li>
+                </ul>
+            </div>
+        </details>
 
         <p id="busy-message" class="notice hidden" role="status"></p>
         <section id="error-panel" class="error hidden" role="alert"></section>

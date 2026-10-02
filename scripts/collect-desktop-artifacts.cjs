@@ -12,18 +12,31 @@ async function findDownloads(directory) {
   return files.sort();
 }
 
-async function main() {
-  const source = path.resolve(process.argv[2] || 'out/make');
-  const destination = path.resolve(process.argv[3] || 'out/release');
+async function collectDownloads({
+  source = 'out/make',
+  destination = 'out/release',
+  platform = process.platform,
+  arch = process.arch,
+  formats,
+} = {}) {
+  source = path.resolve(source);
+  destination = path.resolve(destination);
   const downloads = await findDownloads(source);
-  const required = process.platform === 'win32' ? ['.exe', '.zip'] : process.platform === 'linux' ? ['.deb', '.rpm'] : ['.zip'];
+  const defaults = platform === 'win32' ? ['exe', 'zip'] : platform === 'linux' ? ['zip', 'deb', 'rpm'] : ['zip'];
+  const requested = formats ?? defaults;
+  if (!Array.isArray(requested) || !requested.length || requested.some(format => !['exe', 'zip', 'deb', 'rpm'].includes(format))) {
+    throw new Error('Download formats must be a non-empty list of exe, zip, deb, or rpm');
+  }
+  const required = requested.map(format => `.${format}`);
   for (const extension of required) {
     if (!downloads.some(file => file.toLowerCase().endsWith(extension))) {
       throw new Error(`Missing ${extension} download in ${source}`);
     }
   }
 
-  const names = new Set();
+  const guideName = `START-HERE-${platform}-${arch}.txt`;
+  const checksumName = `SHA256SUMS-${platform}-${arch}.txt`;
+  const names = new Set([guideName.toLowerCase(), checksumName.toLowerCase()]);
   for (const file of downloads) {
     const name = path.basename(file);
     if (names.has(name.toLowerCase())) throw new Error(`Duplicate download name: ${name}`);
@@ -40,12 +53,24 @@ async function main() {
     await fs.writeFile(path.join(destination, name), bytes);
     checksums.push(`${createHash('sha256').update(bytes).digest('hex')}  ${name}`);
   }
-  const checksumName = `SHA256SUMS-${process.platform}-${process.arch}.txt`;
+  const guide = await fs.readFile(path.join(__dirname, '..', 'desktop', 'START-HERE.txt'));
+  await fs.writeFile(path.join(destination, guideName), guide);
+  checksums.push(`${createHash('sha256').update(guide).digest('hex')}  ${guideName}`);
   await fs.writeFile(path.join(destination, checksumName), `${checksums.join('\n')}\n`);
-  console.log(`Collected ${downloads.length} downloads and ${checksumName} in ${destination}`);
+  return { downloads: downloads.length, guideName, checksumName, destination };
 }
 
-main().catch(error => {
-  console.error(error.message);
-  process.exitCode = 1;
-});
+module.exports = { collectDownloads };
+
+if (require.main === module) {
+  const [source, destination, formatsFlag, ...extra] = process.argv.slice(2);
+  if (extra.length || (formatsFlag && !formatsFlag.startsWith('--formats='))) {
+    console.error('Usage: node scripts/collect-desktop-artifacts.cjs [source] [destination] [--formats=zip,deb]');
+    process.exitCode = 1;
+  } else collectDownloads({ source, destination, formats: formatsFlag?.slice('--formats='.length).split(',') }).then(result => {
+    console.log(`Collected ${result.downloads} downloads, ${result.guideName}, and ${result.checksumName} in ${result.destination}`);
+  }).catch(error => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}
