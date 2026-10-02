@@ -34,6 +34,7 @@ export interface TimerState {
 }
 
 export interface GameState {
+  computer?: { color: PlayerColor; level: number; thinking: boolean };
   id: string;
   board: Board;
   turn: PlayerColor;
@@ -63,6 +64,8 @@ export interface GameSettings {
 // ─── Socket.IO Event Interfaces ────────────────────────────────────
 
 export interface CreateGameData {
+  opponent?: 'human' | 'computer';
+  aiLevel?: number;
   matchType: string;
   timer: string;
   colorMode: string;
@@ -115,6 +118,8 @@ export interface MoveData {
 }
 
 export interface ServerToClientEvents {
+  hostStopped: () => void;
+  runtimeConfig: (config: { publicOrigin: string | null }) => void;
   gameStateUpdate: (state: GameState) => void;
   gameEnded: (data: { reason: string; winner: PlayerColor | 'DRAW' }) => void;
   playerJoined: (data: { color: PlayerColor }) => void;
@@ -127,6 +132,7 @@ export interface ServerToClientEvents {
 }
 
 export interface ClientToServerEvents {
+  leaveComputerGame: (data: { gameId: string }, cb: (res: { success: boolean; message?: string }) => void) => void;
   createGame: (data: CreateGameData, cb: (res: CreateGameResponse) => void) => void;
   joinGame: (data: JoinGameData, cb: (res: JoinGameResponse) => void) => void;
   cancelGame: (data: { gameId: string }, cb: (res: { success: boolean; message?: string }) => void) => void;

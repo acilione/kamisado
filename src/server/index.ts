@@ -1,19 +1,24 @@
 import express from 'express';
 import http from 'http';
 import { randomBytes } from 'crypto';
-import { Server } from 'socket.io';
+import { Server, type Socket } from 'socket.io';
 import path from 'path';
-import type { AddressInfo } from 'net';
+import type { AddressInfo, Socket as TcpSocket } from 'net';
 
 import { KamisadoGame } from './game.js';
+import { AI_LEVELS, isAiLevel } from '../shared/ai-levels.js';
+import { chooseFillDirection } from './ai/engine.js';
+import { requestComputerMove, stopComputerWorkers, type ComputerTask } from './ai/runner.js';
 import type {
-  PlayerColor, GameState, PositionMode,
+    PlayerColor, GameState, PositionMode, MoveData,
   ServerToClientEvents, ClientToServerEvents,
 } from '../shared/types.js';
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server<ClientToServerEvents, ServerToClientEvents>(server);
+let io: Server<ClientToServerEvents, ServerToClientEvents> | undefined;
+let startingServer: Promise<RunningServer> | null = null;
+let activeServer: RunningServer | null = null;
+let stoppingServer = false;
 
 let publicOrigin: string | null = null;
 
@@ -30,6 +35,7 @@ export interface RunningServer {
 export function setPublicOrigin(origin: string | null): void {
     if (origin === null) {
         publicOrigin = null;
+        io?.emit('runtimeConfig', { publicOrigin });
         return;
     }
 
@@ -38,6 +44,7 @@ export function setPublicOrigin(origin: string | null): void {
         throw new Error('Public origin must be an HTTP(S) URL without credentials');
     }
     publicOrigin = parsed.origin;
+    io?.emit('runtimeConfig', { publicOrigin });
 }
 
 app.get('/runtime-config.js', (_req, res) => {
@@ -67,6 +74,14 @@ interface DisconnectEntry {
 }
 
 interface GameSession {
+    computer?: {
+        color: PlayerColor;
+        level: number;
+        ownerId: string;
+        generation: number;
+        thinking: boolean;
+        task?: ComputerTask;
+    };
     gameInstance: KamisadoGame;
     players: Record<string, string | null>;   // color → playerId
     sockets: Record<string, string>;          // playerId → socketId
@@ -97,6 +112,23 @@ const VALID_POSITION_MODES = new Set<PositionMode>(['standard', 'fill', 'random'
 const DISCONNECT_GRACE_MS = 60_000;
 const FINISHED_GAME_RETENTION_MS = 5 * 60_000;
 
+function sessionState(session: GameSession): GameState {
+    const state = session.gameInstance.toJson();
+    if (session.computer) {
+        const { color, level, thinking } = session.computer;
+        state.computer = { color, level, thinking };
+    }
+    return state;
+}
+
+function cancelComputer(session: GameSession): void {
+    if (!session.computer) return;
+    session.computer.generation++;
+    session.computer.task?.cancel();
+    session.computer.task = undefined;
+    session.computer.thinking = false;
+}
+
 function hasActiveGame(playerId: string): boolean {
     const s = playerSessions.get(playerId);
     if (!s) return false;
@@ -125,6 +157,7 @@ function removeSessionsForGame(gameId: string): void {
 }
 
 function clearSessionTimers(session: GameSession): void {
+    cancelComputer(session);
     if (session.turnTimer) clearTimeout(session.turnTimer);
     if (session.roundTimer) clearTimeout(session.roundTimer);
     if (session.lobbyTimeout) clearTimeout(session.lobbyTimeout);
@@ -151,8 +184,8 @@ function finishSession(
     game.winner = winner;
     clearSessionTimers(session);
 
-    if (broadcastState) io.to(gameId).emit('gameStateUpdate', game.toJson());
-    io.to(gameId).emit('gameEnded', { reason, winner });
+    if (broadcastState) io!.to(gameId).emit('gameStateUpdate', sessionState(session));
+    io!.to(gameId).emit('gameEnded', { reason, winner });
     removeSessionsForGame(gameId);
 
     session.cleanupTimeout = setTimeout(() => {
@@ -179,8 +212,8 @@ function getOpponentDisconnectInfo(session: GameSession, playerId: string): {
 function replaceSocket(gameId: string, session: GameSession, playerId: string, newSocketId: string): void {
     const oldSocketId = session.sockets[playerId];
     if (oldSocketId && oldSocketId !== newSocketId) {
-        io.to(oldSocketId).emit('sessionTakenOver');
-        io.sockets.sockets.get(oldSocketId)?.leave(gameId);
+        io!.to(oldSocketId).emit('sessionTakenOver');
+        io!.sockets.sockets.get(oldSocketId)?.leave(gameId);
     }
     session.sockets[playerId] = newSocketId;
 }
@@ -191,17 +224,19 @@ function restoreConnectedPlayer(gameId: string, session: GameSession, playerId: 
 
     clearTimeout(entry.timeout);
     session.disconnects.delete(playerId);
-    io.to(gameId).emit('playerReconnected', { color, playerId });
+    io!.to(gameId).emit('playerReconnected', { color, playerId });
 
     if (session.disconnects.size === 0) {
         session.gameInstance.resumeTimer();
         startTurnTimer(gameId, session);
-        io.to(gameId).emit('gameStateUpdate', session.gameInstance.toJson());
+        advanceComputer(gameId, session);
+        io!.to(gameId).emit('gameStateUpdate', sessionState(session));
     }
 }
 
 function beginDisconnectCountdown(gameId: string, session: GameSession, playerId: string): void {
     if (session.gameInstance.finished || session.disconnects.has(playerId)) return;
+    cancelComputer(session);
 
     const timerResult = session.gameInstance.pauseTimer();
     if (session.turnTimer) {
@@ -213,9 +248,9 @@ function beginDisconnectCountdown(gameId: string, session: GameSession, playerId
         return;
     }
 
-    io.to(gameId).emit('gameStateUpdate', session.gameInstance.toJson());
+    io!.to(gameId).emit('gameStateUpdate', sessionState(session));
 
-    io.to(gameId).emit('playerDisconnected', {
+    io!.to(gameId).emit('playerDisconnected', {
         playerId,
         timeoutSeconds: DISCONNECT_GRACE_MS / 1000,
     });
@@ -234,7 +269,12 @@ function beginDisconnectCountdown(gameId: string, session: GameSession, playerId
 
 // ─── Socket.IO ─────────────────────────────────────────────────────
 
-io.on('connection', (socket) => {
+function onConnection(socket: Socket<ClientToServerEvents, ServerToClientEvents>): void {
+    if (stoppingServer) {
+        socket.disconnect(true);
+        return;
+    }
+    socket.emit('runtimeConfig', { publicOrigin });
     // Check Active Session
     socket.on('checkActiveSession', (data, callback) => {
         if (typeof callback !== 'function') return;
@@ -268,7 +308,7 @@ io.on('connection', (socket) => {
                         success: true,
                         gameId: pSession.gameId,
                         isSpectator: true,
-                        gameState: gameSession.gameInstance.toJson(),
+                        gameState: sessionState(gameSession),
                     });
                 }
 
@@ -279,7 +319,7 @@ io.on('connection', (socket) => {
                     success: true,
                     gameId: pSession.gameId,
                     color: pSession.color,
-                    gameState: gameSession.gameInstance.toJson(),
+                    gameState: sessionState(gameSession),
                     ...disconnectInfo,
                     roundTimerEndTime: gameSession.roundTimerEndTime || null,
                 });
@@ -298,6 +338,12 @@ io.on('connection', (socket) => {
         }
 
         const { matchType, timer, colorMode, playerId } = data;
+        const opponent = data.opponent ?? 'human';
+        if (!['human', 'computer'].includes(opponent) ||
+            (data.aiLevel !== undefined && !isAiLevel(data.aiLevel)) ||
+            (opponent === 'computer' && !isAiLevel(data.aiLevel))) {
+            return callback({ success: false, message: 'Choose a computer difficulty from 1 to 10' });
+        }
         const positionMode = (data.positionMode || 'standard') as PositionMode;
         if (!VALID_MATCH_TYPES.has(matchType) || !VALID_TIMERS.has(timer) ||
             !VALID_COLOR_MODES.has(colorMode) || !VALID_POSITION_MODES.has(positionMode)) {
@@ -333,12 +379,25 @@ io.on('connection', (socket) => {
 
         playerSessions.set(playerId, { gameId, color: assignedColor });
 
+        if (opponent === 'computer') {
+            session.computer = {
+                color: assignedColor === 'black' ? 'white' : 'black',
+                level: data.aiLevel!, ownerId: playerId, generation: 0, thinking: false,
+            };
+            socket.join(gameId);
+            game.startGame();
+            startTurnTimer(gameId, session);
+            advanceComputer(gameId, session);
+            callback({ success: true, gameId, color: assignedColor, gameState: sessionState(session) });
+            return;
+        }
+
         // Background Cleanup Timeout (10 minutes)
         session.lobbyTimeout = setTimeout(() => {
             const s = games.get(gameId);
             if (s && s.gameInstance.roundState === 'waiting_start') {
                 console.log(`Lobby ${gameId} expired (abandoned).`);
-                io.to(gameId).emit('lobbyExpired');
+                io!.to(gameId).emit('lobbyExpired');
                 Object.keys(s.players).forEach(c => {
                     const pid = s.players[c];
                     if (pid) playerSessions.delete(pid);
@@ -349,7 +408,21 @@ io.on('connection', (socket) => {
 
         socket.join(gameId);
 
-        callback({ success: true, gameId, color: assignedColor, gameState: game.toJson() });
+        callback({ success: true, gameId, color: assignedColor, gameState: sessionState(session) });
+    });
+
+    socket.on('leaveComputerGame', (data, callback) => {
+        if (typeof callback !== 'function') return;
+        const session = typeof data?.gameId === 'string' ? games.get(data.gameId) : undefined;
+        if (!session?.computer || getSocketPlayer(session, socket.id)?.playerId !== session.computer.ownerId) {
+            return callback({ success: false, message: 'Only the player can leave this computer game' });
+        }
+        clearSessionTimers(session);
+        if (session.cleanupTimeout) clearTimeout(session.cleanupTimeout);
+        removeSessionsForGame(data.gameId);
+        games.delete(data.gameId);
+        socket.leave(data.gameId);
+        callback({ success: true });
     });
 
     // Cancel Game (Manual)
@@ -367,7 +440,7 @@ io.on('connection', (socket) => {
         }
 
         console.log(`Game ${gameId} cancelled by player.`);
-        io.to(gameId).emit('lobbyExpired');
+        io!.to(gameId).emit('lobbyExpired');
 
         if (session.lobbyTimeout) clearTimeout(session.lobbyTimeout);
 
@@ -394,6 +467,9 @@ io.on('connection', (socket) => {
         if (session.gameInstance.finished) {
             return callback({ success: false, message: 'Game has ended' });
         }
+        if (session.computer && playerId !== session.computer.ownerId) {
+            return callback({ success: false, message: 'Single-player games are private' });
+        }
 
         const existingSession = playerSessions.get(playerId);
         if (existingSession && existingSession.gameId === gameId) {
@@ -418,7 +494,7 @@ io.on('connection', (socket) => {
                 success: true,
                 gameId,
                 color: existingSession.color,
-                gameState: session.gameInstance.toJson(),
+                gameState: sessionState(session),
                 isSpectator: existingSession.isSpectator,
                 ...disconnectInfo,
                 roundTimerEndTime: session.roundTimerEndTime || null,
@@ -442,7 +518,7 @@ io.on('connection', (socket) => {
                 success: true,
                 gameId,
                 isSpectator: true,
-                gameState: session.gameInstance.toJson(),
+                gameState: sessionState(session),
             });
         }
 
@@ -459,7 +535,7 @@ io.on('connection', (socket) => {
         socket.join(gameId);
 
         // Notify opponent
-        io.to(gameId).emit('playerJoined', { color: assignedColor });
+        io!.to(gameId).emit('playerJoined', { color: assignedColor });
 
         // Start Game if both present
         if (session.players['black'] && session.players['white']) {
@@ -473,14 +549,14 @@ io.on('connection', (socket) => {
                     if (id && !session.sockets[id]) beginDisconnectCountdown(gameId, session, id);
                 }
             }
-            io.to(gameId).emit('gameStateUpdate', game.toJson());
+            io!.to(gameId).emit('gameStateUpdate', sessionState(session));
         }
 
         callback({
             success: true,
             gameId,
             color: assignedColor,
-            gameState: session.gameInstance.toJson(),
+            gameState: sessionState(session),
             ...getOpponentDisconnectInfo(session, playerId),
         });
     });
@@ -502,6 +578,10 @@ io.on('connection', (socket) => {
             socket.emit('error', { message: 'Only active players can make moves' });
             return;
         }
+        if (session.disconnects.size > 0) {
+            socket.emit('error', { message: 'Wait for the disconnected player to rejoin' });
+            return;
+        }
 
         const timeUpdate = game.updateTimer();
         if (timeUpdate && timeUpdate.timeout) {
@@ -512,42 +592,7 @@ io.on('connection', (socket) => {
         try {
             game.makeMove(move.fromR, move.fromC, move.toR, move.toC, player.color);
 
-            if (session.turnTimer) clearTimeout(session.turnTimer);
-
-            const state = game.toJson();
-            io.to(gameId).emit('gameStateUpdate', state);
-
-            if (game.finished && game.winner) {
-                finishSession(gameId, session, 'match_complete', game.winner, false);
-            } else if (game.roundState === 'playing') {
-                startTurnTimer(gameId, session);
-            } else if (state.roundState === 'waiting_confirmation') {
-                if (!session.roundTimer) {
-                    console.log(`Round finished. Starting 30s timer for game ${gameId}`);
-                    const roundTimerEndTime = Date.now() + 30000;
-                    session.roundTimerEndTime = roundTimerEndTime;
-                    io.to(gameId).emit('roundTimerStart', { endTime: roundTimerEndTime });
-                    session.roundTimer = setTimeout(() => {
-                        if (game.roundState === 'waiting_confirmation') {
-                            console.log(`Round timeout for game ${gameId}`);
-                            const blackConfirmed = game.confirmations.has('black');
-                            const whiteConfirmed = game.confirmations.has('white');
-                            let winner: PlayerColor | 'DRAW';
-                            if (blackConfirmed && !whiteConfirmed) winner = 'black';
-                            else if (whiteConfirmed && !blackConfirmed) winner = 'white';
-                            else {
-                                if (game.scores['black'] > game.scores['white']) winner = 'black';
-                                else if (game.scores['white'] > game.scores['black']) winner = 'white';
-                                else winner = 'DRAW';
-                                finishSession(gameId, session, 'round_timeout', winner);
-                                return;
-                            }
-                            finishSession(gameId, session, 'surrender_timeout', winner);
-                        }
-                        session.roundTimer = null;
-                    }, 30000);
-                }
-            }
+            afterMove(gameId, session);
 
         } catch (e: any) {
             socket.emit('error', { message: e.message });
@@ -566,7 +611,7 @@ io.on('connection', (socket) => {
         const game = session.gameInstance;
 
         const allConfirmed = game.confirmNextRound(player.color);
-        io.to(gameId).emit('gameStateUpdate', game.toJson());
+        io!.to(gameId).emit('gameStateUpdate', sessionState(session));
 
         if (allConfirmed) {
             if (session.roundTimer) {
@@ -578,7 +623,8 @@ io.on('connection', (socket) => {
             if (game.roundState === 'playing') {
                 startTurnTimer(gameId, session);
             }
-            io.to(gameId).emit('gameStateUpdate', game.toJson());
+            advanceComputer(gameId, session);
+            io!.to(gameId).emit('gameStateUpdate', sessionState(session));
         }
     });
 
@@ -596,7 +642,8 @@ io.on('connection', (socket) => {
         try {
             game.handleFillChoice(player.color, direction);
             startTurnTimer(gameId, session);
-            io.to(gameId).emit('gameStateUpdate', game.toJson());
+            advanceComputer(gameId, session);
+            io!.to(gameId).emit('gameStateUpdate', sessionState(session));
         } catch (e: any) {
             socket.emit('error', { message: e.message });
         }
@@ -621,7 +668,7 @@ io.on('connection', (socket) => {
             }
         }
     });
-});
+}
 
 function environmentPort(): number {
     const parsed = Number.parseInt(process.env.PORT || '3000', 10);
@@ -629,27 +676,97 @@ function environmentPort(): number {
 }
 
 export async function startServer(options: ServerStartOptions = {}): Promise<RunningServer> {
-    if (!server.listening) {
-        const port = options.port ?? environmentPort();
+    if (startingServer) return startingServer;
+    if (activeServer) return activeServer;
+    startingServer = listen(options);
+    try {
+        return await startingServer;
+    } finally {
+        startingServer = null;
+    }
+}
+
+async function listen(options: ServerStartOptions): Promise<RunningServer> {
+    stoppingServer = false;
+    const server = http.createServer(app);
+    const connections = new Set<TcpSocket>();
+    server.on('connection', connection => {
+        connections.add(connection);
+        connection.once('close', () => connections.delete(connection));
+    });
+    const socketServer = new Server<ClientToServerEvents, ServerToClientEvents>(server);
+    io = socketServer;
+    socketServer.on('connection', onConnection);
+    try {
         await new Promise<void>((resolve, reject) => {
-            const onError = (error: Error) => reject(error);
-            server.once('error', onError);
-            server.listen(port, options.host, () => {
-                server.off('error', onError);
+            server.once('error', reject);
+            server.listen(options.port ?? environmentPort(), options.host, () => {
+                server.off('error', reject);
                 resolve();
             });
         });
+    } catch (error) {
+        // A failed bind must not leave an Engine.IO instance around before a retry.
+        await new Promise<void>(resolve => socketServer.close(() => resolve()));
+        io = undefined;
+        throw error;
     }
-
-    const address = server.address() as AddressInfo | null;
-    if (!address || typeof address === 'string') throw new Error('Server did not expose a TCP port');
-
-    return {
+    const address = server.address() as AddressInfo;
+    let closing: Promise<void> | null = null;
+    const running: RunningServer = {
         port: address.port,
-        close: () => new Promise<void>((resolve, reject) => {
-            io.close(error => error ? reject(error) : resolve());
-        }),
+        close: () => {
+            if (closing) return closing;
+            stoppingServer = true;
+            // Polling clients may be between requests. Wait for their outgoing
+            // packet to drain, but never let an unreachable guest hold Stop open.
+            const drained = Promise.all([...socketServer.sockets.sockets.values()].map(socket => {
+                socket.removeAllListeners();
+                return new Promise<void>(resolve => {
+                    const connection = socket.conn;
+                    const finish = () => {
+                        clearTimeout(timeout);
+                        connection.off('drain', finish);
+                        connection.off('close', finish);
+                        resolve();
+                    };
+                    const timeout = setTimeout(finish, 1000);
+                    connection.once('drain', finish);
+                    connection.once('close', finish);
+                });
+            }));
+            socketServer.emit('hostStopped');
+            // Remove games before disconnecting clients so disconnect handlers cannot
+            // start new grace timers while the host is shutting down.
+            for (const session of games.values()) {
+                clearSessionTimers(session);
+                if (session.cleanupTimeout) clearTimeout(session.cleanupTimeout);
+            }
+            games.clear();
+            const workersStopped = stopComputerWorkers();
+            playerSessions.clear();
+            publicOrigin = null;
+            closing = Promise.all([drained, workersStopped]).then(() => new Promise<void>((resolve, reject) => {
+                // Browsers may preconnect without sending HTTP headers, or leave
+                // an upgrade unfinished. Those sockets can hold HTTP close open
+                // indefinitely, even after Socket.IO has disconnected its clients.
+                // Give the shutdown notice time to arrive, then release leftovers.
+                const deadline = setTimeout(() => {
+                    for (const connection of connections) connection.destroy();
+                }, 1000);
+                const finish = (error?: Error) => {
+                    clearTimeout(deadline);
+                    activeServer = null;
+                    io = undefined;
+                    error ? reject(error) : resolve();
+                };
+                void socketServer.close(finish).catch(finish);
+            }));
+            return closing;
+        },
     };
+    activeServer = running;
+    return running;
 }
 
 if (require.main === module) {
@@ -681,4 +798,114 @@ function startTurnTimer(gameId: string, session: GameSession): void {
 function handleGameTimeout(gameId: string, session: GameSession, loserColor: PlayerColor): void {
     const winner: PlayerColor = loserColor === 'black' ? 'white' : 'black';
     finishSession(gameId, session, 'chess_timeout', winner);
+}
+
+function afterMove(gameId: string, session: GameSession): void {
+    const game = session.gameInstance;
+    if (session.turnTimer) clearTimeout(session.turnTimer);
+    session.turnTimer = undefined;
+    if (game.finished && game.winner) {
+        finishSession(gameId, session, 'match_complete', game.winner);
+        return;
+    }
+
+    advanceComputer(gameId, session);
+    io!.to(gameId).emit('gameStateUpdate', sessionState(session));
+    if (game.roundState === 'playing') {
+        startTurnTimer(gameId, session);
+    } else if (game.roundState === 'waiting_confirmation' && !session.roundTimer) {
+        session.roundTimerEndTime = Date.now() + 30000;
+        io!.to(gameId).emit('roundTimerStart', { endTime: session.roundTimerEndTime });
+        session.roundTimer = setTimeout(() => {
+            if (game.roundState !== 'waiting_confirmation') return;
+            const blackConfirmed = game.confirmations.has('black');
+            const whiteConfirmed = game.confirmations.has('white');
+            let winner: PlayerColor | 'DRAW';
+            if (blackConfirmed !== whiteConfirmed) {
+                winner = blackConfirmed ? 'black' : 'white';
+                finishSession(gameId, session, 'surrender_timeout', winner);
+            } else {
+                winner = game.scores.black === game.scores.white ? 'DRAW'
+                    : game.scores.black > game.scores.white ? 'black' : 'white';
+                finishSession(gameId, session, 'round_timeout', winner);
+            }
+        }, 30000);
+    }
+}
+
+function firstLegalMove(game: KamisadoGame): MoveData | null {
+    for (const piece of game.getPlayerPieces(game.turn)) {
+        if (game.requiredColor && piece.color !== game.requiredColor) continue;
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                if (game.isValidMove(piece.r, piece.c, r, c, game.turn).valid) {
+                    return { fromR: piece.r, fromC: piece.c, toR: r, toC: c };
+                }
+            }
+        }
+    }
+    return null;
+}
+
+function advanceComputer(gameId: string, session: GameSession): void {
+    const computer = session.computer;
+    const game = session.gameInstance;
+    if (!computer || stoppingServer || games.get(gameId) !== session || game.finished ||
+        session.disconnects.size || !session.sockets[computer.ownerId]) return;
+
+    if (game.roundState === 'waiting_confirmation') {
+        game.confirmNextRound(computer.color);
+        return;
+    }
+    if (game.roundState === 'waiting_fill_choice' && game.defender === computer.color) {
+        game.handleFillChoice(computer.color, chooseFillDirection(game.toJson(), game.settings, computer.level));
+        startTurnTimer(gameId, session);
+    }
+    if (game.roundState !== 'playing' || game.turn !== computer.color || computer.task) return;
+
+    const timedOut = game.updateTimer();
+    if (timedOut?.timeout && timedOut.player) {
+        handleGameTimeout(gameId, session, timedOut.player);
+        return;
+    }
+    const remaining = game.timerState.remaining[computer.color];
+    const maxTimeMs = Math.max(1, Math.min(AI_LEVELS[computer.level - 1].maxTimeMs,
+        game.timerState.enabled ? Math.max(1, remaining / 20) : Infinity));
+    const generation = ++computer.generation;
+    const round = game.round;
+    computer.thinking = true;
+    const task = requestComputerMove({
+        state: game.toJson(), settings: game.settings, level: computer.level, maxTimeMs,
+    });
+    computer.task = task;
+    io!.to(gameId).emit('gameStateUpdate', sessionState(session));
+
+    void task.result.catch(error => {
+        console.error(`Computer search failed in ${gameId}; using a legal fallback:`, error.message);
+        return null;
+    }).then(candidate => {
+        if (computer.generation !== generation || computer.task !== task || stoppingServer ||
+            games.get(gameId) !== session || game.finished || game.round !== round ||
+            game.roundState !== 'playing' || game.turn !== computer.color || session.disconnects.size ||
+            !session.sockets[computer.ownerId]) return;
+        computer.task = undefined;
+        computer.thinking = false;
+        const timer = game.updateTimer();
+        if (timer?.timeout && timer.player) {
+            handleGameTimeout(gameId, session, timer.player);
+            return;
+        }
+        // Worker output crosses a trust/lifecycle boundary. Validate against the
+        // live authoritative board even though the search uses the same rules.
+        const move = candidate && game.isValidMove(candidate.fromR, candidate.fromC,
+            candidate.toR, candidate.toC, computer.color).valid ? candidate : firstLegalMove(game);
+        if (!move) {
+            console.error(`Computer has no legal move in active game ${gameId}`);
+            return;
+        }
+        game.makeMove(move.fromR, move.fromC, move.toR, move.toC, computer.color);
+        afterMove(gameId, session);
+    }).catch(error => {
+        console.error(`Unable to apply computer move in ${gameId}:`, error);
+    });
 }
