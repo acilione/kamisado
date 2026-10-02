@@ -30,9 +30,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Install browser test dependencies
+        if: matrix.node-version == 22
+        run: npx playwright install --with-deps chromium
+      - name: Test board views and invitations
+        if: matrix.node-version == 22
+        run: npm run test:browser
 
   desktop-package:
-    name: Package desktop app (Windows)
+    name: Package and launch desktop app (Windows)
     runs-on: windows-latest
     timeout-minutes: 20
 
@@ -44,3 +50,5 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run desktop:package
+      - run: npx playwright install chromium
+      - run: npm run test:desktop

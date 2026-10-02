@@ -1,7 +1,7 @@
 import express from 'express';
 import http from 'http';
 import { randomBytes } from 'crypto';
-import { Server } from 'socket.io';
+import { Server, type Socket } from 'socket.io';
 import path from 'path';
 import type { AddressInfo } from 'net';
 
@@ -12,8 +12,10 @@ import type {
 } from '../shared/types.js';
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server<ClientToServerEvents, ServerToClientEvents>(server);
+let io: Server<ClientToServerEvents, ServerToClientEvents> | undefined;
+let startingServer: Promise<RunningServer> | null = null;
+let activeServer: RunningServer | null = null;
+let stoppingServer = false;
 
 let publicOrigin: string | null = null;
 
@@ -30,6 +32,7 @@ export interface RunningServer {
 export function setPublicOrigin(origin: string | null): void {
     if (origin === null) {
         publicOrigin = null;
+        io?.emit('runtimeConfig', { publicOrigin });
         return;
     }
 
@@ -38,6 +41,7 @@ export function setPublicOrigin(origin: string | null): void {
         throw new Error('Public origin must be an HTTP(S) URL without credentials');
     }
     publicOrigin = parsed.origin;
+    io?.emit('runtimeConfig', { publicOrigin });
 }
 
 app.get('/runtime-config.js', (_req, res) => {
@@ -151,8 +155,8 @@ function finishSession(
     game.winner = winner;
     clearSessionTimers(session);
 
-    if (broadcastState) io.to(gameId).emit('gameStateUpdate', game.toJson());
-    io.to(gameId).emit('gameEnded', { reason, winner });
+    if (broadcastState) io!.to(gameId).emit('gameStateUpdate', game.toJson());
+    io!.to(gameId).emit('gameEnded', { reason, winner });
     removeSessionsForGame(gameId);
 
     session.cleanupTimeout = setTimeout(() => {
@@ -179,8 +183,8 @@ function getOpponentDisconnectInfo(session: GameSession, playerId: string): {
 function replaceSocket(gameId: string, session: GameSession, playerId: string, newSocketId: string): void {
     const oldSocketId = session.sockets[playerId];
     if (oldSocketId && oldSocketId !== newSocketId) {
-        io.to(oldSocketId).emit('sessionTakenOver');
-        io.sockets.sockets.get(oldSocketId)?.leave(gameId);
+        io!.to(oldSocketId).emit('sessionTakenOver');
+        io!.sockets.sockets.get(oldSocketId)?.leave(gameId);
     }
     session.sockets[playerId] = newSocketId;
 }
@@ -191,12 +195,12 @@ function restoreConnectedPlayer(gameId: string, session: GameSession, playerId: 
 
     clearTimeout(entry.timeout);
     session.disconnects.delete(playerId);
-    io.to(gameId).emit('playerReconnected', { color, playerId });
+    io!.to(gameId).emit('playerReconnected', { color, playerId });
 
     if (session.disconnects.size === 0) {
         session.gameInstance.resumeTimer();
         startTurnTimer(gameId, session);
-        io.to(gameId).emit('gameStateUpdate', session.gameInstance.toJson());
+        io!.to(gameId).emit('gameStateUpdate', session.gameInstance.toJson());
     }
 }
 
@@ -213,9 +217,9 @@ function beginDisconnectCountdown(gameId: string, session: GameSession, playerId
         return;
     }
 
-    io.to(gameId).emit('gameStateUpdate', session.gameInstance.toJson());
+    io!.to(gameId).emit('gameStateUpdate', session.gameInstance.toJson());
 
-    io.to(gameId).emit('playerDisconnected', {
+    io!.to(gameId).emit('playerDisconnected', {
         playerId,
         timeoutSeconds: DISCONNECT_GRACE_MS / 1000,
     });
@@ -234,7 +238,12 @@ function beginDisconnectCountdown(gameId: string, session: GameSession, playerId
 
 // ─── Socket.IO ─────────────────────────────────────────────────────
 
-io.on('connection', (socket) => {
+function onConnection(socket: Socket<ClientToServerEvents, ServerToClientEvents>): void {
+    if (stoppingServer) {
+        socket.disconnect(true);
+        return;
+    }
+    socket.emit('runtimeConfig', { publicOrigin });
     // Check Active Session
     socket.on('checkActiveSession', (data, callback) => {
         if (typeof callback !== 'function') return;
@@ -338,7 +347,7 @@ io.on('connection', (socket) => {
             const s = games.get(gameId);
             if (s && s.gameInstance.roundState === 'waiting_start') {
                 console.log(`Lobby ${gameId} expired (abandoned).`);
-                io.to(gameId).emit('lobbyExpired');
+                io!.to(gameId).emit('lobbyExpired');
                 Object.keys(s.players).forEach(c => {
                     const pid = s.players[c];
                     if (pid) playerSessions.delete(pid);
@@ -367,7 +376,7 @@ io.on('connection', (socket) => {
         }
 
         console.log(`Game ${gameId} cancelled by player.`);
-        io.to(gameId).emit('lobbyExpired');
+        io!.to(gameId).emit('lobbyExpired');
 
         if (session.lobbyTimeout) clearTimeout(session.lobbyTimeout);
 
@@ -459,7 +468,7 @@ io.on('connection', (socket) => {
         socket.join(gameId);
 
         // Notify opponent
-        io.to(gameId).emit('playerJoined', { color: assignedColor });
+        io!.to(gameId).emit('playerJoined', { color: assignedColor });
 
         // Start Game if both present
         if (session.players['black'] && session.players['white']) {
@@ -473,7 +482,7 @@ io.on('connection', (socket) => {
                     if (id && !session.sockets[id]) beginDisconnectCountdown(gameId, session, id);
                 }
             }
-            io.to(gameId).emit('gameStateUpdate', game.toJson());
+            io!.to(gameId).emit('gameStateUpdate', game.toJson());
         }
 
         callback({
@@ -515,7 +524,7 @@ io.on('connection', (socket) => {
             if (session.turnTimer) clearTimeout(session.turnTimer);
 
             const state = game.toJson();
-            io.to(gameId).emit('gameStateUpdate', state);
+            io!.to(gameId).emit('gameStateUpdate', state);
 
             if (game.finished && game.winner) {
                 finishSession(gameId, session, 'match_complete', game.winner, false);
@@ -526,7 +535,7 @@ io.on('connection', (socket) => {
                     console.log(`Round finished. Starting 30s timer for game ${gameId}`);
                     const roundTimerEndTime = Date.now() + 30000;
                     session.roundTimerEndTime = roundTimerEndTime;
-                    io.to(gameId).emit('roundTimerStart', { endTime: roundTimerEndTime });
+                    io!.to(gameId).emit('roundTimerStart', { endTime: roundTimerEndTime });
                     session.roundTimer = setTimeout(() => {
                         if (game.roundState === 'waiting_confirmation') {
                             console.log(`Round timeout for game ${gameId}`);
@@ -566,7 +575,7 @@ io.on('connection', (socket) => {
         const game = session.gameInstance;
 
         const allConfirmed = game.confirmNextRound(player.color);
-        io.to(gameId).emit('gameStateUpdate', game.toJson());
+        io!.to(gameId).emit('gameStateUpdate', game.toJson());
 
         if (allConfirmed) {
             if (session.roundTimer) {
@@ -578,7 +587,7 @@ io.on('connection', (socket) => {
             if (game.roundState === 'playing') {
                 startTurnTimer(gameId, session);
             }
-            io.to(gameId).emit('gameStateUpdate', game.toJson());
+            io!.to(gameId).emit('gameStateUpdate', game.toJson());
         }
     });
 
@@ -596,7 +605,7 @@ io.on('connection', (socket) => {
         try {
             game.handleFillChoice(player.color, direction);
             startTurnTimer(gameId, session);
-            io.to(gameId).emit('gameStateUpdate', game.toJson());
+            io!.to(gameId).emit('gameStateUpdate', game.toJson());
         } catch (e: any) {
             socket.emit('error', { message: e.message });
         }
@@ -621,7 +630,7 @@ io.on('connection', (socket) => {
             }
         }
     });
-});
+}
 
 function environmentPort(): number {
     const parsed = Number.parseInt(process.env.PORT || '3000', 10);
@@ -629,27 +638,82 @@ function environmentPort(): number {
 }
 
 export async function startServer(options: ServerStartOptions = {}): Promise<RunningServer> {
-    if (!server.listening) {
-        const port = options.port ?? environmentPort();
+    if (startingServer) return startingServer;
+    if (activeServer) return activeServer;
+    startingServer = listen(options);
+    try {
+        return await startingServer;
+    } finally {
+        startingServer = null;
+    }
+}
+
+async function listen(options: ServerStartOptions): Promise<RunningServer> {
+    stoppingServer = false;
+    const server = http.createServer(app);
+    const socketServer = new Server<ClientToServerEvents, ServerToClientEvents>(server);
+    io = socketServer;
+    socketServer.on('connection', onConnection);
+    try {
         await new Promise<void>((resolve, reject) => {
-            const onError = (error: Error) => reject(error);
-            server.once('error', onError);
-            server.listen(port, options.host, () => {
-                server.off('error', onError);
+            server.once('error', reject);
+            server.listen(options.port ?? environmentPort(), options.host, () => {
+                server.off('error', reject);
                 resolve();
             });
         });
+    } catch (error) {
+        // A failed bind must not leave an Engine.IO instance around before a retry.
+        await new Promise<void>(resolve => socketServer.close(() => resolve()));
+        io = undefined;
+        throw error;
     }
-
-    const address = server.address() as AddressInfo | null;
-    if (!address || typeof address === 'string') throw new Error('Server did not expose a TCP port');
-
-    return {
+    const address = server.address() as AddressInfo;
+    let closing: Promise<void> | null = null;
+    const running: RunningServer = {
         port: address.port,
-        close: () => new Promise<void>((resolve, reject) => {
-            io.close(error => error ? reject(error) : resolve());
-        }),
+        close: () => {
+            if (closing) return closing;
+            stoppingServer = true;
+            // Polling clients may be between requests. Wait for their outgoing
+            // packet to drain, but never let an unreachable guest hold Stop open.
+            const drained = Promise.all([...socketServer.sockets.sockets.values()].map(socket => {
+                socket.removeAllListeners();
+                return new Promise<void>(resolve => {
+                    const connection = socket.conn;
+                    const finish = () => {
+                        clearTimeout(timeout);
+                        connection.off('drain', finish);
+                        connection.off('close', finish);
+                        resolve();
+                    };
+                    const timeout = setTimeout(finish, 1000);
+                    connection.once('drain', finish);
+                    connection.once('close', finish);
+                });
+            }));
+            socketServer.emit('hostStopped');
+            // Remove games before disconnecting clients so disconnect handlers cannot
+            // start new grace timers while the host is shutting down.
+            for (const session of games.values()) {
+                clearSessionTimers(session);
+                if (session.cleanupTimeout) clearTimeout(session.cleanupTimeout);
+            }
+            games.clear();
+            playerSessions.clear();
+            publicOrigin = null;
+            closing = drained.then(() => new Promise<void>((resolve, reject) => {
+                socketServer.close(error => {
+                    activeServer = null;
+                    io = undefined;
+                    error ? reject(error) : resolve();
+                });
+            }));
+            return closing;
+        },
     };
+    activeServer = running;
+    return running;
 }
 
 if (require.main === module) {

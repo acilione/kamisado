@@ -115,6 +115,8 @@ export interface MoveData {
 }
 
 export interface ServerToClientEvents {
+  hostStopped: () => void;
+  runtimeConfig: (config: { publicOrigin: string | null }) => void;
   gameStateUpdate: (state: GameState) => void;
   gameEnded: (data: { reason: string; winner: PlayerColor | 'DRAW' }) => void;
   playerJoined: (data: { color: PlayerColor }) => void;

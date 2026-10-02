@@ -6,6 +6,7 @@ export interface DesktopState {
     port: number;
     connectivity: ConnectivityDetails | null;
     hasSavedNgrokToken: boolean;
+    hasSessionNgrokToken: boolean;
     canSaveNgrokToken: boolean;
     error?: string;
 }
@@ -22,7 +23,6 @@ export interface KamisadoDesktopApi {
     startHosting(request: StartHostingRequest): Promise<DesktopState>;
     stopHosting(): Promise<DesktopState>;
     forgetNgrokToken(): Promise<DesktopState>;
-    openGame(): Promise<void>;
     copyText(value: string): Promise<void>;
     openExternal(url: string): Promise<void>;
 }

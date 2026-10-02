@@ -80,3 +80,38 @@ summary { cursor: pointer; user-select: none; }
     .choice-title em { display: none; }
     .actions { grid-template-columns: 1fr; }
 }
+
+/* The connection screen and game share one native window. */
+body.playing { overflow: hidden; }
+main { padding-top: 56px; padding-bottom: 40px; }
+button:focus-visible, summary:focus-visible { outline: 2px solid #98bcff; outline-offset: 4px; }
+#play-toolbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 56px; padding: 10px 22px; border-bottom: 1px solid #303947; background: #141922; font-size: 12px; }
+.hosting-label { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.hosting-label strong { color: #e1e7ef; font-size: 14px; letter-spacing: -.02em; }
+#connection-label { padding-left: 12px; border-left: 1px solid #3b4657; color: #a4b4c8; }
+.keep-open { color: #8795a8; }
+#hosting-settings { padding: 7px 12px; font-size: 12px; font-weight: 500; }
+#game-panel { height: calc(100dvh - 56px); background: #15171c; }
+#game-frame { display: block; width: 100%; height: 100%; border: 0; background: #15171c; }
+#status-panel { margin-bottom: 24px; }
+#status-dot { box-shadow: none; }
+#switch-hint { margin-bottom: 14px !important; color: #a6b3c6; line-height: 1.6; font-size: 12px; }
+.connection-details > p { line-height: 1.6; }
+.origin-row code { white-space: normal; overflow-wrap: anywhere; user-select: text; }
+.setup-note { margin-top: 28px; color: #8190a5; text-align: center; font-size: 12px; line-height: 1.6; }
+.notice { margin: 18px 0; color: #b1cbf8; font-size: 13px; }
+.stop-confirmation { margin-top: 18px; padding: 16px; border: 1px solid #77454b; border-radius: 10px; background: #281c23; }
+.stop-confirmation strong { font-size: 14px; }
+.stop-confirmation p { margin: 8px 0; color: #d9bfc3; font-size: 12px; line-height: 1.5; }
+.stop-confirmation .actions { grid-template-columns: auto auto; margin-top: 12px; }
+button.danger { color: #ffe6e9; border-color: #a45762; background: #69343d; }
+button.danger:hover:not(:disabled) { background: #83434e; }
+@media (max-width: 760px) {
+    .keep-open { display: none; }
+    #play-toolbar { gap: 10px; padding-inline: 14px; }
+}
+@media (max-width: 560px) {
+    main { padding: 32px 18px; }
+    #connection-label { font-size: 11px; }
+    .stop-confirmation .actions { grid-template-columns: 1fr; }
+}

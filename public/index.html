@@ -16,6 +16,7 @@
 
 <body>
     <div id="app">
+        <p id="connection-notice" class="hidden" role="status" aria-live="polite"></p>
         <!-- Menu Screen -->
         <div id="menu-screen">
             <h1>Kamisado</h1>
@@ -67,7 +68,7 @@
                         <input type="checkbox" id="symbol-mode" class="symbol-mode-toggle" role="switch" aria-label="Symbol mode (color-blind friendly)">
                     </label>
                 </div>
-                <button id="create-btn">Create Game</button>
+                <button id="create-btn" disabled>Create Game</button>
             </div>
 
             <div class="divider">OR</div>
@@ -76,7 +77,7 @@
                 <h3>Join Game</h3>
                 <label for="join-id" class="sr-only">Game ID or invitation link</label>
                 <input type="text" id="join-id" placeholder="Game ID or invitation link" autocomplete="off">
-                <button id="join-btn">Join</button>
+                <button id="join-btn" disabled>Join</button>
             </div>
 
             <div class="menu-group">
@@ -131,6 +132,21 @@
                 <div id="turn-indicator" aria-live="polite" aria-atomic="true">Waiting...</div>
                 <div id="message"></div>
             </div>
+            <details id="invite-panel" class="hidden">
+                <summary id="invite-title">Invite a friend</summary>
+                <div class="invite-content">
+                    <div class="invite-copy">
+                        <p id="invite-help">Send the link or scan the code on another device. Your friend plays in their browser.</p>
+                        <label for="share-link">Invitation link</label>
+                        <div class="invite-link-row">
+                            <input id="share-link" type="text" readonly spellcheck="false" autocomplete="off" aria-describedby="share-feedback">
+                            <button id="share-btn" type="button">Copy link</button>
+                        </div>
+                        <p id="share-feedback" role="status" aria-live="polite"></p>
+                    </div>
+                    <canvas id="share-qr" width="160" height="160" role="img" aria-label="Scan this code to open the invitation link"></canvas>
+                </div>
+            </details>
             <div id="board-container">
                 <div id="board" aria-label="Game board"></div>
                 <div id="board-3d" class="hidden"></div>

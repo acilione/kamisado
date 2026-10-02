@@ -10,14 +10,15 @@
     "start": "node dist/server/index.js",
     "dev": "tsx watch src/server/index.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
-    "test:unit": "tsx tests/unit/test_game_features.ts && tsx tests/unit/test_sumo.ts && tsx tests/unit/test_rules_comprehensive.ts && tsx tests/unit/test_timer.ts && tsx tests/unit/test_connectivity.ts && tsx tests/unit/test_token_vault.ts && tsx tests/unit/test_server_lifecycle.ts",
+    "test:unit": "tsx tests/unit/test_game_features.ts && tsx tests/unit/test_sumo.ts && tsx tests/unit/test_rules_comprehensive.ts && tsx tests/unit/test_timer.ts && tsx tests/unit/test_connectivity.ts && tsx tests/unit/test_token_vault.ts && tsx tests/unit/test_server_lifecycle.ts && tsx tests/unit/test_hosting_controller.ts",
     "test:integration": "npm run build && node scripts/run-integration-tests.js",
-    "test:browser": "npm run build && node tests/browser/test_board_views.cjs",
+    "test:browser": "npm run build && node tests/browser/test_board_views.cjs && node tests/browser/test_invitation_flow.cjs",
     "test": "npm run typecheck && npm run test:unit && npm run test:integration",
     "ngrok": "node scripts/start-ngrok.js",
     "desktop:dev": "npm run build && electron-forge start",
     "desktop:package": "npm run build && electron-forge package",
-    "desktop:make": "npm run build && electron-forge make"
+    "desktop:make": "npm run build && electron-forge make",
+    "test:desktop": "node scripts/test-packaged-app.cjs"
   },
   "keywords": [
     "kamisado",
@@ -41,7 +42,9 @@
   },
   "dependencies": {
     "@ngrok/ngrok": "^1.7.0",
+    "electron-squirrel-startup": "^1.0.1",
     "express": "^4.18.2",
+    "qrcode": "^1.5.4",
     "socket.io": "^4.7.2",
     "three": "^0.186.1"
   },
@@ -51,10 +54,12 @@
     "@electron-forge/maker-rpm": "^7.11.2",
     "@electron-forge/maker-squirrel": "^7.11.2",
     "@electron-forge/maker-zip": "^7.11.2",
+    "@types/electron-squirrel-startup": "^1.0.2",
     "@types/express": "^5.0.6",
     "@types/node": "^25.2.3",
+    "@types/qrcode": "^1.5.6",
     "@types/three": "^0.186.0",
-    "electron": "41.7.1",
+    "electron": "41.10.7",
     "esbuild": "0.28.1",
     "playwright": "^1.63.0",
     "socket.io-client": "^4.7.2",
