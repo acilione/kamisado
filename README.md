@@ -21,6 +21,10 @@ Open [Releases](https://github.com/acilione/kamisado/releases) and choose an app
 
 The [player guide](docs/player-guide.md) explains installation on each platform, how to start a game, and connection troubleshooting. If a release has no application assets yet, GitHub's **Source code** archives are not a replacement for the desktop download.
 
+## Mobile
+
+Android and iOS apps use the same game code through Capacitor. They support offline computer play and direct P2P with mobile or desktop opponents. Android test builds use an APK; iPhone installation requires a signed Xcode build until a TestFlight or App Store release is available. See the [mobile guide](docs/mobile.md) for installation, building, and current limitations.
+
 ## Ways to play
 
 | Mode | What you need |
@@ -37,6 +41,7 @@ Keep the host app open during a match. Games are held in memory and are lost whe
 
 - [Player guide](docs/player-guide.md): downloads, installation, game modes, and troubleshooting.
 - [Game rules](docs/rules.md): movement, forced passes, scoring, and sumo towers.
+- [Mobile guide](docs/mobile.md): Android and iPhone installation, native builds, and shared code.
 - [Development](docs/development.md): prerequisites, running from source, compiling, packaging, tests, and releases.
 - [Code structure](docs/architecture.md): module responsibilities, game state, networking, and the desktop app.
 - [Computer opponent](docs/ai-research.md): search algorithm, difficulty settings, and research references.

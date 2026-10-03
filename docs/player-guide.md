@@ -75,6 +75,10 @@ If the maintainer supplies a Mac build:
 
 Signing and notarization are not configured in this repository. If macOS blocks a trusted test build because the developer cannot be verified, try opening it once, then check **System Settings → Privacy & Security → Open Anyway**. Follow [Apple's instructions for opening downloaded apps](https://support.apple.com/en-us/102445); an alert saying the app is damaged or contains malware needs a different response from an unidentified-developer alert.
 
+### Android, iPhone, and iPad
+
+The [mobile guide](mobile.md) covers the Android APK and iOS project, offline computer play, and P2P with desktop or mobile opponents. Phones can also open desktop LAN invitations in their browsers without installing the mobile app.
+
 ## Start a game
 
 ### Against the computer

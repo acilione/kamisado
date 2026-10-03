@@ -5,11 +5,12 @@ import { normalizeGameInvitation } from '../shared/invitation-url.js';
 import { createRealisticTower, createRealisticSymbol, REALISTIC_COLORS } from './realistic-art.js';
 import { RealisticBoard3D } from './board-3d.js';
 import { InvitationPanel } from './invitation.js';
+import { connectGameSocket } from './transport.js';
 import { PeerPanel } from './peer-panel.js';
 
 const requestedPeerMode = new URLSearchParams(window.location.search).get('peer');
 const peer = requestedPeerMode === 'host' || requestedPeerMode === 'guest' ? new PeerPanel(requestedPeerMode) : null;
-const socket = peer?.role === 'guest' ? peer.transport.getGuestSocket() : io();
+const socket = peer?.role === 'guest' ? peer.transport.getGuestSocket() : connectGameSocket();
 
 // State
 let gameId: string | null = null;
@@ -176,6 +177,12 @@ function getGameIdFromUrl(): string | null {
 }
 
 function sessionUrl(path: string): string {
+    if (window.__KAMISADO_MOBILE__) {
+        const url = new URL(path, window.location.href);
+        if (peer) url.searchParams.set('peer', peer.role);
+        // Keep Capacitor on its bundled entry page. Game IDs are in memory.
+        return '/' + url.search;
+    }
     if (!peer) return path;
     const url = new URL(path, window.location.origin);
     url.searchParams.set('peer', peer.role);

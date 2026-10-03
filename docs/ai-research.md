@@ -1,6 +1,6 @@
 # Computer opponent
 
-The computer player uses minimax search with alpha-beta pruning and a handwritten evaluation function. It runs locally in a Node.js worker thread, with no neural network, training data, or external engine service.
+The computer player uses minimax search with alpha-beta pruning and a handwritten evaluation function. It runs locally in a Node.js worker thread on desktop, or a Web Worker on mobile, with no neural network, training data, or external engine service.
 
 ## Search
 

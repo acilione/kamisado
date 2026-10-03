@@ -8,6 +8,10 @@ coverage/
 .env.local
 *.log
 npm-debug.log*
+*.jks
+*.keystore
+*.p12
+*.mobileprovision
 
 .DS_Store
 Thumbs.db

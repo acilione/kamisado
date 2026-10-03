@@ -1,0 +1,7 @@
+{
+  "appId": "io.github.acilione.kamisado",
+  "appName": "Kamisado",
+  "webDir": "out/mobile",
+  "android": { "path": "mobile/android", "minWebViewVersion": 100 },
+  "ios": { "path": "mobile/ios" }
+}

@@ -15,6 +15,8 @@ module.exports = {
       /^\/ref_imgs($|\/)/,
       /^\/scripts($|\/)/,
       /^\/out($|\/)/,
+      /^\/mobile($|\/)/,
+      /^\/node_modules\/@capacitor($|\/)/,
     ],
   },
   hooks: {
