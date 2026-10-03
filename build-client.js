@@ -8,8 +8,7 @@ esbuild.buildSync({
   platform: 'browser',
   target: 'es2020',
   external: [],
-  // The `io` function is loaded via CDN script tag, so we treat the import as external
-  // and strip it since our globals.d.ts handles the typing
+  // Socket.IO is served locally by the host; globals.d.ts types its `io` function.
   define: {},
 });
 

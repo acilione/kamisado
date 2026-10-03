@@ -112,6 +112,10 @@ Use `--arch=x64` for Intel Macs. The package contains `Kamisado.app` under `out/
 
 If npm needs to compile a native dependency, install Apple's Command Line Tools with `xcode-select --install`. Distribution builds need signing and notarization configured in Forge; see [Forge's macOS signing guide](https://www.electronforge.io/guides/code-signing/code-signing-macos).
 
+## Mobile applications
+
+Android and iOS use Capacitor with the existing game UI, match controller, and AI. Run `npm run mobile:sync` to bundle the mobile app and copy it into both native projects. `npm run mobile:android` and `npm run mobile:ios` open the platform IDE. See [Mobile](mobile.md) for SDK requirements, APK and iOS builds, installation, and the source layout.
+
 ## Tests
 
 ```sh
@@ -126,6 +130,7 @@ This runs type checking, unit tests, then integration tests. Integration tests b
 | `npm run test:unit` | Rules, sumo, clocks, AI search/workers, invitations, connectivity, credentials, server shutdown, and desktop artifact collection. |
 | `npm run test:integration` | Games, spectators, links, reconnection, lobby refresh, socket resilience, and computer matches. |
 | `npm run test:browser` | Board views, invitations, computer games, the launcher UI, and WebRTC transport/game flows in Chromium. |
+| `npm run test:mobile` | Offline phone play, touch layouts, and P2P interoperability with desktop using the mobile bundle. |
 | `npm run test:desktop` | Launches an existing packaged application and checks real desktop, browser guest, P2P, and offline play flows. |
 
 Browser and packaged tests are separate from `npm test`. Install Chromium before running them:

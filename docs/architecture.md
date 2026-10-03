@@ -2,14 +2,15 @@
 
 See the [README](../README.md) for an overview, [Development](development.md) for commands, and [Rules](rules.md) for game behavior.
 
-Kamisado uses one authoritative game server for browser, desktop, and direct WebRTC matches. The browser renders server state and sends player actions. Electron adds a launcher and owns the local server's lifetime; it does not implement a second rules engine.
+Kamisado shares one rules engine and match controller across browser, desktop, and mobile games. The host owns the match state, and clients render that state and send player actions. Desktop hosts use a Node server; mobile hosts run the same controller inside their WebView. Electron and Capacitor provide the platform launchers.
 
 ## Source map
 
 ```text
 src/
   server/
-    index.ts              HTTP/Socket.IO entry point, sessions, clocks, AI scheduling
+    index.ts              Node HTTP/Socket.IO entry point and server lifecycle
+    sessions.ts           Shared match controller, player sessions, clocks, AI scheduling
     game.ts               Kamisado rules and match state
     ai/
       engine.ts           Bounded classical search and evaluation
@@ -23,6 +24,7 @@ src/
     p2p-transport.ts       WebRTC channel and host-side Socket.IO proxy
     realistic-art.ts      Shared palette, character markings, and SVG towers
     board-3d.ts            Three.js board, picking, camera, and resource disposal
+  mobile/                 Capacitor launcher, local event transport, Web Worker adapter
   desktop/
     main.ts               Electron window, trusted IPC, startup, and shutdown
     preload.ts            Narrow API exposed to the launcher
@@ -47,7 +49,7 @@ The build compiles `src/` to `dist/` and bundles `src/client/client.ts` into `pu
 
 [`KamisadoGame`](../src/server/game.ts) owns movement validation, forced colors and passes, deadlocks, sumo pushes, rounds, scoring, layouts, and clock state. It serializes the position as `GameState`. Keep rule changes here so human moves and computer search continue to use the same transitions.
 
-[`src/server/index.ts`](../src/server/index.ts) wraps games in sessions with player/socket assignments, spectators, disconnect records, and scheduled work. It validates incoming event data and the acting socket before applying a move, then broadcasts the updated state. The server schedules clock expiry and round transitions; client countdowns are a display of that state.
+[`src/server/sessions.ts`](../src/server/sessions.ts) wraps games in sessions with player/socket assignments, spectators, disconnect records, and scheduled work. It validates incoming event data and the acting socket before applying a move, then broadcasts the updated state. The server schedules clock expiry and round transitions; client countdowns are a display of that state.
 
 Games and player sessions live in memory. There is no database or saved-match recovery. Browser identity is kept in `localStorage`, so two tabs at the same origin normally represent the same player. Reconnecting replaces that player's old socket; the old socket loses its authority to act. This identity is a session mechanism, not an account system.
 
@@ -84,6 +86,12 @@ flowchart LR
 The guest uses a small Socket.IO-shaped adapter, so the game UI can share its event handling. It does not open a Socket.IO connection for game traffic. The host browser opens an additional local Socket.IO connection for the guest and forwards a fixed set of supported events. The proxy confines requests to the invited room and assigns the guest's server identity itself. It bounds message size, request rate, and pending acknowledgements.
 
 The default ICE configuration uses Google's public STUN service to discover addresses. There is no signaling service or TURN relay in this mode: players exchange codes themselves, and game traffic uses the WebRTC data channel. Some networks cannot establish a direct connection. Both local pages and the host server must remain running. The desktop guest runs a local server to serve its page; the host's server owns the match.
+
+## Mobile boundary
+
+Capacitor bundles the same game page for Android and iOS. `src/mobile/main.ts` provides the menu and native lifecycle hooks. The mobile host connects the UI and P2P proxy to `createSessionHost` through an in-memory transport; it does not run Express or Node. That shared controller still owns moves, clocks, rounds, sessions, and AI scheduling. A Web Worker runs the same AI search used by Node's worker threads.
+
+`src/client/event-socket.ts` supplies the shared event/acknowledgement adapter for mobile host sockets and WebRTC guests. Desktop and browser clients continue to connect through Socket.IO. Mobile LAN links open in the system browser, outside the native bridge. See [Mobile](mobile.md) for the build pipeline and lifecycle limits.
 
 ## Electron boundary
 
