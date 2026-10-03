@@ -45,6 +45,17 @@
     width: 100%;
     height: 100%;
     touch-action: none;
+    /* The board handles taps itself; a WebView tap highlight covers the whole canvas. */
+    -webkit-tap-highlight-color: transparent;
+    -webkit-user-select: none;
+    user-select: none;
+}
+#board-3d canvas:focus:not(:focus-visible) {
+    outline: none;
+}
+#board-3d canvas:focus-visible {
+    outline: 2px solid #d2d5dd;
+    outline-offset: -3px;
 }
 #camera-controls {
     display: flex;

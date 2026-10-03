@@ -657,6 +657,9 @@ function handleCellClick(r: number, c: number): void {
 
     if (piece && piece.player === playerColor) {
         if (gameState.requiredColor && piece.color !== gameState.requiredColor) {
+            selectedPiece = null;
+            renderBoard();
+            alert(`You have to move the ${gameState.requiredColor} piece.`);
             return;
         }
         selectedPiece = { r, c };
