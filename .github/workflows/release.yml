@@ -36,7 +36,7 @@ jobs:
       - run: npm run test:browser
 
   build:
-    name: Build installers and portable ZIP (${{ matrix.platform }})
+    name: Build portable desktop (${{ matrix.folder }})
     needs: validate
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
@@ -46,8 +46,10 @@ jobs:
         include:
           - os: windows-latest
             platform: win32
+            folder: Windows-desktop
           - os: ubuntu-22.04
             platform: linux
+            folder: Linux-desktop
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -56,7 +58,7 @@ jobs:
           cache: npm
       - name: Install Linux packaging and display tools
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y fakeroot rpm xvfb
+        run: sudo apt-get update && sudo apt-get install -y zip xvfb
       - run: npm ci
       - run: npm run desktop:make -- --arch=x64
       - name: Install guest browser (Windows)
@@ -75,8 +77,8 @@ jobs:
         run: node scripts/collect-desktop-artifacts.cjs
       - uses: actions/upload-artifact@v4
         with:
-          name: kamisado-${{ matrix.platform }}-x64
-          path: out/release/*
+          name: Kamisado-${{ matrix.folder }}-x64
+          path: out/release/${{ matrix.folder }}/*.*
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
@@ -93,7 +95,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: kamisado-*-x64
+          pattern: Kamisado-*-desktop-x64
           path: out/release
           merge-multiple: true
       - name: Create draft and attach downloads

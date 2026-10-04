@@ -13,7 +13,7 @@ const { chromium } = require('playwright');
     page.setDefaultTimeout(20000);
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.locator('#mobile-home').waitFor();
+    await page.locator('#menu-screen').waitFor();
     console.log('Native launcher is ready.');
     await page.evaluate(() => {
       window.nativeSearches = [];
@@ -22,10 +22,9 @@ const { chromium } = require('playwright');
         constructor(...args) { super(...args); this.addEventListener('message', event => nativeSearches.push(event.data)); }
       };
     });
-    await page.locator('#mobile-computer').click();
     await page.locator('#ai-level').selectOption('10');
     await page.locator('#color-mode').selectOption('black');
-    await page.locator('#create-btn').click();
+    await page.locator('#play-computer-btn').click();
     await page.locator('.cell[data-r="0"][data-c="0"]').click();
     await page.locator('.cell[data-r="1"][data-c="0"]').click();
     await page.waitForFunction(() => [...document.querySelectorAll('.piece.white')].some(piece => piece.parentElement.dataset.r !== '7'));

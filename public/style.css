@@ -612,6 +612,23 @@ select:focus-visible {
 #peer-panel button { margin: 8px 0; padding: 9px 12px; font-size: 0.9rem; }
 #peer-status { color: #c4d7ff; min-height: 1.5em; }
 #peer-code-help { margin: 12px 0 0; }
+#peer-quick input { width: 100%; box-sizing: border-box; padding: 10px; font: inherit; }
+#peer-quick input, #peer-relay-fields input, #peer-method {
+    border: 1px solid #687080;
+    border-radius: 6px;
+    background: #15171c;
+    color: #e6e9ef;
+}
+#peer-method { padding: 8px; font: inherit; }
+#peer-quick-outgoing { font-family: monospace; }
+#peer-advanced { margin: 12px 0; }
+.game-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.game-actions button { flex: 1 1 160px; margin: 0; }
+#app-join-link { width: 100%; box-sizing: border-box; }
+#peer-relay { margin-top: 12px; }
+#peer-relay-fields { min-width: 0; margin: 12px 0; border: 1px solid #465067; border-radius: 6px; }
+#peer-relay-fields input { width: 100%; box-sizing: border-box; }
+#peer-relay-fields:disabled { opacity: 0.6; }
 
 /* Shared touch layout, including browser guests on phones. */
 body {

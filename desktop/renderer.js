@@ -24,6 +24,19 @@ const joinResult = document.getElementById('join-result');
 let currentState = null;
 let busy = false;
 let storagePreferenceInitialized = false;
+let pendingInvitation = null;
+let inGame = false;
+let lastInvitation = null;
+let queuedInvitation = null;
+let joiningInvitation = false;
+
+function drainInvitation() {
+    if (!busy && !joiningInvitation && queuedInvitation) {
+        const { value } = queuedInvitation;
+        queuedInvitation = null;
+        void joinPeer(value).catch(error => showLocalError(error.message || String(error)));
+    }
+}
 
 function setBusy(value, message = 'Connecting…') {
     busy = value;
@@ -35,6 +48,7 @@ function setBusy(value, message = 'Connecting…') {
     notice.textContent = value ? message : '';
     notice.classList.toggle('hidden', !value);
     launcher.setAttribute('aria-busy', String(value));
+    if (!value) queueMicrotask(drainInvitation);
 }
 
 function showLauncher() {
@@ -51,7 +65,9 @@ function showGame() {
     if (gameFrame.dataset.origin !== currentState.localOrigin) {
         gameFrame.dataset.origin = currentState.localOrigin;
         gameFrame.src = currentState.localOrigin + (currentState.peerMode
-            ? '/?peer=' + currentState.peerMode : (currentState.localOnly ? '/?opponent=computer' : ''));
+            ? '/?peer=' + currentState.peerMode : (currentState.localOnly ? '/?opponent=computer' : ''))
+            + (pendingInvitation ? '#' + pendingInvitation : '');
+        pendingInvitation = null;
     }
     launcher.classList.add('hidden');
     gamePanel.classList.remove('hidden');
@@ -88,6 +104,11 @@ async function startHosting(request) {
     setBusy(true, request.peerMode ? 'Preparing your Internet game…' : (request.localOnly ? 'Preparing your game…' : 'Connecting…'));
     errorPanel.classList.add('hidden');
     try {
+        if (currentState?.status === 'ready' && ((request.localOnly === true) !== currentState.localOnly ||
+            request.peerMode !== currentState.peerMode)) {
+            if (inGame && !confirm('Leave the current game and change connection?')) return;
+            render(await api.stopHosting());
+        }
         const state = await api.startHosting(request);
         render(state);
         if (state.status === 'ready' && !state.error && !hasNoNetworkAddress(state)) showGame();
@@ -98,6 +119,24 @@ async function startHosting(request) {
         document.getElementById('auth-token').value = '';
         setBusy(false);
     }
+}
+
+async function joinPeer(invitation) {
+    if (invitation && !/^K2R?\.[A-Za-z0-9_-]{21}[AQgw]$/.test(invitation)) {
+        showLocalError('This is not a valid Kamisado invitation.');
+        return;
+    }
+    if (busy || joiningInvitation) { queuedInvitation = { value: invitation }; return; }
+    if (invitation && invitation === lastInvitation && inGame) return;
+    if (inGame && !confirm('Leave the current game and join your friend?')) return;
+    joiningInvitation = true;
+    try {
+        inGame = false;
+        if (currentState?.status === 'ready') render(await api.stopHosting());
+        pendingInvitation = invitation || null;
+        lastInvitation = invitation || null;
+        await startHosting({ mode: 'direct', localOnly: true, peerMode: 'guest' });
+    } finally { joiningInvitation = false; drainInvitation(); }
 }
 
 function isLoopbackOrigin(origin) {
@@ -160,6 +199,7 @@ function renderOrigins(origins) {
 function render(state) {
     currentState = state;
     const ready = state.status === 'ready' && Boolean(state.connectivity);
+    if (!ready) inGame = false;
     const localSession = ready && state.localOnly;
     const peer = ready && Boolean(state.peerMode);
     const offline = localSession && !peer;
@@ -191,14 +231,14 @@ function render(state) {
     errorPanel.textContent = state.error || '';
     statusPanel.classList.toggle('hidden', !ready);
     toolbar.classList.toggle('hidden', !ready);
-    document.getElementById('setup-panel').classList.toggle('hidden', localSession);
+    document.getElementById('setup-panel').classList.toggle('hidden', localSession && inGame);
     computerButton.classList.toggle('hidden', ready);
     peerHostButton.classList.toggle('hidden', ready);
     peerJoinButton.classList.toggle('hidden', ready);
     document.getElementById('peer-help').classList.toggle('hidden', ready);
     document.querySelector('.connection-details').classList.toggle('hidden', localSession);
     document.getElementById('switch-hint').classList.toggle('hidden', !ready || localSession);
-    settingsButton.textContent = localSession ? 'Session' : 'Connection';
+    settingsButton.textContent = 'Connection';
     document.getElementById('session-hint').textContent = offline
         ? 'Offline play' : 'Keep this app open and this computer awake.';
     document.getElementById('status-title').textContent = peer ? 'Your Internet game' : (offline ? 'Your computer game' : (state.connectivity?.title || 'Hosting is active'));
@@ -254,6 +294,7 @@ document.getElementById('join-form').addEventListener('submit', async event => {
     event.preventDefault();
     if (busy) return;
     const invitation = joinInvitation.value.trim();
+    if (invitation.startsWith('kamisado://join/')) { await joinPeer(invitation.slice('kamisado://join/'.length)); return; }
     joinInvitation.removeAttribute('aria-invalid');
     joinResult.classList.remove('error');
     joinResult.classList.add('hidden');
@@ -284,6 +325,14 @@ document.getElementById('join-form').addEventListener('submit', async event => {
 // The embedded game has no desktop API access. Only its current local frame
 // may ask the launcher to open a validated invitation in the system browser.
 window.addEventListener('message', async event => {
+    if (event.source === gameFrame.contentWindow && event.origin === currentState?.localOrigin) {
+        if (event.data?.type === 'kamisado:session' && typeof event.data.active === 'boolean') {
+            inGame = event.data.active;
+            document.getElementById('setup-panel').classList.toggle('hidden', currentState.localOnly && inGame);
+            return;
+        }
+        if (event.data?.type === 'kamisado:join-peer') { await joinPeer(event.data.invitation); return; }
+    }
     if (event.source !== gameFrame.contentWindow || event.origin !== currentState?.localOrigin
         || event.data?.type !== 'kamisado:join-invitation' || !Number.isSafeInteger(event.data.requestId)) return;
     const source = event.source;
@@ -367,7 +416,12 @@ document.querySelectorAll('[data-external]').forEach(button => {
 });
 
 setBusy(true, 'Getting ready…');
-api.getState().then(state => {
+api.onInvitation?.(invitation => { void joinPeer(invitation); });
+api.getState().then(async state => {
     render(state);
-    if (state.status === 'ready' && !hasNoNetworkAddress(state)) showGame();
+    const invitation = await api.takeInvitation?.();
+    setBusy(false);
+    if (invitation) await joinPeer(invitation);
+    else if (state.status === 'ready' && !hasNoNetworkAddress(state)) showGame();
+    else await startHosting({ mode: 'direct', localOnly: true, peerMode: 'host' });
 }).catch(error => showLocalError(error.message || String(error))).finally(() => setBusy(false));

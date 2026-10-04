@@ -2,33 +2,31 @@ Kamisado
 
 Getting started
 
-Download an application from:
-https://github.com/acilione/kamisado/releases
+There are no published releases or public installer downloads yet.
+Use a test build supplied by the maintainer, or build from source:
+https://github.com/acilione/kamisado#build-and-run-from-source
 
 No Node.js, terminal, or development tools are needed to use the app.
-Choose an installer or ZIP for your computer. The "Source code" archives
-are for developers. You do not need the RELEASES or .nupkg support files.
+Choose the portable ZIP for your computer. The "Source code" archives
+are for developers. Desktop builds run without installation.
 
-Install and open
+Open and play
 
 Windows
-  Download the file ending in Setup.exe, run it, and open Kamisado from
-  the Start menu.
-
-  For the portable version, download the win32-x64 ZIP, choose Extract All,
-  and open Kamisado.exe in the extracted folder. Keep its other files
-  beside it. Preferences are still saved in your Windows user profile.
+  Open Windows-desktop, then Kamisado, then Kamisado.exe.
+  If you received a ZIP, choose Extract All first and open Kamisado.exe
+  in the extracted folder. Use a Windows folder such as Downloads, not
+  the Linux filesystem inside WSL. Keep the other files beside the app.
+  Preferences are saved in your Windows user profile.
 
 Linux
-  On Debian or Ubuntu, open the .deb file with your software installer.
-  On a Fedora-compatible system, use the .rpm file when it is provided.
-  After installation, open Kamisado from the applications menu.
-
-  For the portable version, extract the linux-x64 ZIP and open Kamisado
-  inside it. If needed, allow execution in the file's Properties >
-  Permissions. The ZIP still needs system libraries; use your distribution's
-  package if libraries are missing. Current downloads are for Intel/AMD
-  64-bit computers, not ARM devices.
+  Open Linux-desktop, then Kamisado, then the Kamisado executable.
+  If you received a ZIP, extract the whole archive first. If needed,
+  allow execution in Properties > Permissions. Keep the other files
+  beside the app. No DEB or RPM installation is required.
+  The app includes Electron but still needs Linux desktop libraries.
+  See the player guide for missing-library troubleshooting.
+  Current Windows and Linux builds are for Intel/AMD 64-bit computers.
 
 Mac
   Mac builds are not included in the automated releases yet. You can join
@@ -47,13 +45,13 @@ https://support.apple.com/en-us/102445
 Playing
 
 Against the computer
-  Choose "Play computer", select a difficulty from 1 to 10 and your game
-  options, then press "Play computer" again. This works offline.
+  Choose your game options and a difficulty from 1 to 10 on the first
+  screen, then press "Play with computer". This works offline.
   Black moves first; choosing White lets the computer open.
 
 On the same network (LAN)
   1. Connect both devices to the same Wi-Fi or Ethernet network.
-  2. The host opens the app and chooses "Host a LAN game".
+  2. The host opens "Connection" and chooses "Host a LAN game".
   3. Choose the rules and press "Create Game".
   4. Share the invitation link or let the other player scan its QR code.
   5. The other player opens the link in a browser on a computer, phone,
@@ -64,19 +62,36 @@ On the same network (LAN)
   LAN play works without an account or an Internet connection.
 
 Over the Internet (P2P)
-  1. Both players open the app. One chooses "Host Internet game" and the
-     other chooses "Join Internet game".
-  2. The host sets the rules, presses "Create Game", then presses
-     "Create invitation code". Use "Copy code" and send it through chat.
-  3. The guest pastes the invitation and presses "Create reply code".
-     Copy that reply and send it back to the host.
-  4. The host pastes the reply and presses "Connect to friend".
+  1. The host sets the game options and presses "Create game".
+  2. Press "Share link" and send the invitation privately. Phones open the
+     system share sheet; desktops without system sharing copy the link.
+  3. The guest opens the kamisado://join/... link. The app joins automatically.
 
-  Keep both apps open while playing. Codes expire after ten minutes.
-  Moves travel directly between the two computers; no central Kamisado
-  game or matchmaking server is needed. A public STUN service helps find
-  connection addresses. Some networks block P2P, and this mode has no relay
-  fallback. Connection troubleshooting is below.
+  Both apps must be updated for Quick connect. There is no reply to send
+  back. Return to Kamisado after sharing the invitation. Keep both apps open.
+  Invitations expire after ten minutes. Share them only with your opponent.
+
+  If your messaging app does not recognize the link, paste it into
+  "Join a game" in Kamisado. Open the Windows app once to register app links.
+  On Linux, portable ZIP users can paste invitations. No website is needed.
+
+  PeerJS Cloud automatically exchanges the connection details. Neither the
+  players nor Kamisado's maintainer need an account or a server. Public STUN
+  helps find addresses, then moves travel over an encrypted connection
+  between the two apps. The game runs on the host's device. The public
+  signaling service sees setup metadata but does not carry moves. An outage
+  can prevent a new connection; it does not end an already connected match.
+
+  For manual setup, open "Advanced" and choose "Manual code exchange" on
+  both apps. The host creates and sends an invitation code; the guest
+  creates and sends back a reply code. The host pastes the reply and presses
+  "Connect to friend". Direct connections also work with older app versions.
+
+  If the direct attempt fails, "Relay fallback" allows a retry using a TURN
+  provider's addresses, username, and session password. No relay service is
+  included. Both players configure it, then use a fresh invitation. TURN
+  forwards encrypted traffic; the game stays on the host's device.
+  Credentials are not saved or sent in invitations.
 
 Board controls
 
@@ -93,10 +108,10 @@ Ending a session
 Keep the host app open and the computer awake. Closing it ends its games;
 unfinished matches are not saved.
 
-In computer or P2P mode, use Session > End session to return to the welcome
+In computer or P2P mode, use Connection > End session to return to the connection
 window. In LAN or ngrok mode, use Connection > Stop hosting. A temporary
 disconnect allows up to 60 seconds to return; the between-round confirmation
-countdown can end the match sooner. For P2P, exchange fresh codes if needed.
+countdown can end the match sooner. For P2P, share a fresh invitation if needed.
 Restarting the host app cannot restore a match.
 
 Connection troubleshooting
@@ -113,10 +128,20 @@ LAN invitation will not open
   beside the address shared with your friend. Resend the game's updated link.
 
 P2P connection fails
-  Use the complete invitation and its matching reply. After an expired
-  code or failed attempt, create a fresh invitation. If the connection still
-  times out, try another network. An existing private VPN can also let both
-  computers use a reachable LAN invitation.
+  Update both apps, use the complete invitation, and keep the host app open.
+  After an expired code or failed attempt, create a fresh invitation. If
+  Quick connect cannot reach its signaling service, try manual exchange.
+  In manual mode, use the matching reply for the latest invitation.
+
+  On Windows, run the Windows executable directly. A Linux app running
+  inside WSL can face an extra NAT and firewall layer. Running only the
+  server in WSL with a Windows browser is different: the browser makes
+  the WebRTC connection from Windows.
+
+  If the direct connection times out, try another network or configure
+  Relay fallback. Manual exchange alone cannot bypass a router or mobile
+  carrier that blocks direct connections. An existing private VPN can also
+  let both computers use a reachable LAN invitation.
 
 Other Internet connection options
   The optional ngrok connection uses the host's account and relays traffic

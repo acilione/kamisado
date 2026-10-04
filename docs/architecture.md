@@ -20,7 +20,8 @@ src/
   client/
     client.ts             Browser entry point, actions, state updates, rendering
     invitation.ts         Shared invitation URL, clipboard, and QR display
-    peer-panel.ts         Manual WebRTC invitation/reply controls
+    peer-panel.ts         Quick connect, manual exchange, and relay controls
+    automatic-peer.ts     PeerJS signaling and invitation authentication
     p2p-transport.ts       WebRTC channel and host-side Socket.IO proxy
     realistic-art.ts      Shared palette, character markings, and SVG towers
     board-3d.ts            Three.js board, picking, camera, and resource disposal
@@ -71,9 +72,19 @@ The direct connectivity provider ranks available IPv4 addresses and supplies the
 
 The browser obtains the current advertised origin from `/runtime-config.js` and subsequent `runtimeConfig` socket events. `InvitationPanel` updates the link and QR code together when the origin changes. This origin controls invitation generation; the browser's Socket.IO connection remains attached to the page's own origin.
 
-## Manual WebRTC connections
+## WebRTC connections
 
-The `?peer=host` and `?peer=guest` page modes use [`PeerPanel`](../src/client/peer-panel.ts) for the code exchange. The host creates a normal server game first. `P2pTransport` gathers ICE candidates into an invitation code; the guest returns a reply code, which the host applies to complete the connection. The codes include the game ID, a connection session ID, and SDP. They are temporary connection descriptions, not permanent room links.
+The `?peer=host` and `?peer=guest` page modes use [`PeerPanel`](../src/client/peer-panel.ts) for setup. The host creates a normal server game first. Both Quick connect and manual exchange lead to a WebRTC data channel and use the same guest adapter and host proxy for game events.
+
+Quick connect uses [`automatic-peer.ts`](../src/client/automatic-peer.ts) and PeerJS Cloud to exchange SDP and ICE candidates. The host shares a `kamisado://join/K2.…` link; opening it starts joining automatically. The public signaling service is an external dependency for establishing a connection. It does not host the match or carry game events, and its loss does not close an established data channel. Neither players nor the maintainer need to deploy a signaling server or create an account. See the [PeerJS documentation](https://peerjs.com/client/getting-started) for the service's role.
+
+[`peer-invitation.ts`](../src/shared/peer-invitation.ts) validates app links in the native shell and shared client. Only the exact join route and a canonical invitation token are accepted; links cannot supply a server URL or a file path. Android intent filters, iOS URL schemes, and Electron's protocol handler deliver both cold and warm launches. The token reaches the local guest page in its fragment and is removed immediately. Opening another invitation asks before replacing an active match. `share-link.ts` uses the Capacitor share sheet on phones, Web Share where supported, and the clipboard otherwise. Nothing is hosted at the app-link address.
+
+Desktop and mobile open the shared game-settings UI directly. The host transport stays idle until a friend is invited; computer games use the same local match controller without publishing an invitation. Desktop connection settings still offer LAN and ngrok modes.
+
+The invitation contains a random 128-bit secret. A hash-derived identifier routes setup messages through the broker without revealing that secret. After the data channel opens, the apps authenticate it using HMAC proofs bound to their WebRTC certificate fingerprints before forwarding game events. This makes possession of the invitation necessary to join and ties the proof to the channel. It is not an account or verified identity system: anyone who receives the invitation can attempt to join. The broker still sees signaling metadata, and the protocol has not received an independent security audit.
+
+Under **Advanced**, manual exchange retains the `KAMISADO1` invitation/reply format. `P2pTransport` gathers ICE candidates into an invitation code; the guest returns a reply code, which the host applies to complete the connection. Those codes include the game ID, a connection session ID, and SDP. They are temporary connection descriptions, not permanent room links. This mode does not use PeerJS Cloud.
 
 ```mermaid
 flowchart LR
@@ -85,7 +96,7 @@ flowchart LR
 
 The guest uses a small Socket.IO-shaped adapter, so the game UI can share its event handling. It does not open a Socket.IO connection for game traffic. The host browser opens an additional local Socket.IO connection for the guest and forwards a fixed set of supported events. The proxy confines requests to the invited room and assigns the guest's server identity itself. It bounds message size, request rate, and pending acknowledgements.
 
-The default ICE configuration uses Google's public STUN service to discover addresses. There is no signaling service or TURN relay in this mode: players exchange codes themselves, and game traffic uses the WebRTC data channel. Some networks cannot establish a direct connection. Both local pages and the host server must remain running. The desktop guest runs a local server to serve its page; the host's server owns the match.
+The default ICE configuration uses Google's public STUN service to discover addresses. The first attempt includes no TURN configuration. After failure, `PeerPanel` enables a relay retry; a `K2R.` invitation or the manual format's `relay: true` flag also unlocks it for the guest. `peer-network.ts` validates locally entered TURN addresses and credentials. An explicit retry uses `iceTransportPolicy: 'relay'`, with no automatic fallback to direct connectivity. Credentials exist only in the open page and peer configuration, never in storage or invitation codes. No TURN service or provider account is bundled. Connection status uses the selected ICE candidate pair to distinguish direct from relayed data channels. Both local pages and the host must remain running; the host's device still owns the match.
 
 ## Mobile boundary
 
@@ -113,8 +124,8 @@ The character contours derive from Noto Sans CJK and carry the license in [`publ
 
 ## Lifecycle and recovery limits
 
-An active disconnected player has **up to 60 seconds** to return. Between rounds, the independent 30-second confirmation deadline can end the match sooner. The server pauses the match clock while a player is disconnected and resumes it when both are present. The normal browser transport reconnects through Socket.IO. A closed P2P channel requires a fresh invitation/reply exchange while the game is still recoverable; the host page retains the peer seat identity in `sessionStorage` for same-tab reloads.
+An active disconnected player has **up to 60 seconds** to return. Between rounds, the independent 30-second confirmation deadline can end the match sooner. The server pauses the match clock while a player is disconnected and resumes it when both are present. The normal browser transport reconnects through Socket.IO. A closed P2P channel requires a fresh invitation while the game is still recoverable; manual mode also requires a reply. The host page retains the peer seat identity in `sessionStorage` for same-tab reloads.
 
-P2P setup has separate bounds: up to 10 seconds for ICE gathering, 30 seconds for connection establishment, and 10 minutes to exchange a code. Those setup limits do not extend a running game's 60-second recovery window. Waiting lobbies expire after 10 minutes, and completed games are retained for 5 minutes before removal.
+P2P invitations expire after 10 minutes. Manual setup allows up to 10 seconds for direct ICE gathering (20 seconds for a relay retry) and 30 seconds for connection establishment. A manual relay retry must obtain a relay candidate before producing a code. Quick connect also bounds setup and authentication waits. These limits do not extend a running game's 60-second recovery window. Waiting lobbies expire after 10 minutes, and completed games are retained for 5 minutes before removal.
 
 Stopping or restarting the host discards all sessions immediately. Changing the host's address may also require guests to open the updated invitation; announcing a new origin does not move their existing connection. Tests cover local reconnection and cleanup, but local WebRTC tests cannot establish reachability across every Internet network.

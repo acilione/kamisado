@@ -6,7 +6,9 @@ The mobile app uses Capacitor 8 to package the existing game for Android and iOS
 
 ### Android
 
-Download a Kamisado `.apk` supplied by the maintainer, transfer it to your phone, and open it. Android may ask you to allow installation from the browser or file manager you used. After installation, open **Kamisado** from your apps.
+Open `out/release/Android/` in a local build, or get a Kamisado `.apk` supplied by the maintainer. Transfer the APK to your phone and open it. Android may ask you to allow installation from the browser or file manager you used. After installation, open **Kamisado** from your apps.
+
+After building, `npm run release:android` collects the APK, start guide, and checksums in `out/release/Android/`. Move an older `Android` output folder elsewhere before collecting another build.
 
 The project currently produces a **debug APK** for testing. It is signed with a development key and is not a Google Play release. Updates built on a different machine may require uninstalling the earlier test app first, which removes its preferences. A public release should use a stable signing key.
 
@@ -20,13 +22,15 @@ You can also join a desktop LAN game now by opening its invitation link in Safar
 
 ### Game modes
 
-- **Play computer:** choose a level and game options, then start. All ten levels work offline.
-- **Host a friend / Join a friend:** exchange the invitation and reply codes. Either a phone or a desktop can host. The same controls work on local Wi-Fi and over the Internet.
-- **Join a desktop LAN game:** paste the desktop invitation. It opens in your phone's browser. Scanning the desktop's QR code with your phone's camera works too.
+- **Play with computer:** set the difficulty and game options first, then press the button below the settings. All ten levels work offline.
+- **Create game:** choose the settings, create the game, then press **Share link** to open your phone's share sheet. Your friend opens the link and Kamisado joins automatically. Either a phone or a desktop can host; both need an updated app.
+- **Join a game:** open an invitation link, or paste it into this section. Desktop LAN links open in your phone's browser. Scanning a desktop LAN game's QR code with your phone's camera works too.
 
-Phone hosting uses direct WebRTC connections. It does not create an HTTP server or a browser invitation link. A friend joining a phone host needs the mobile or desktop app and the connection codes. Public STUN helps discover addresses; some networks prevent direct connections and there is no TURN relay fallback.
+Phone hosting uses WebRTC connections. A friend joining a phone host needs the mobile or desktop app; phone hosting does not produce a browser link. **Quick connect** uses [PeerJS Cloud](https://peerjs.com/server/cloud) to exchange setup messages automatically. No account or server hosting is required from the players or the app's maintainer. Send the invitation privately, and return to Kamisado after sharing it so the phone can finish connecting. The [player guide](player-guide.md#over-the-internet-with-p2p) covers this flow and the manual alternative.
 
-Tap a tower, then its destination. In 3D, drag to rotate and pinch to zoom. The view selector and **Symbols** switch are below the board. **End session** returns to the mobile menu.
+Public STUN helps discover addresses for the initial direct attempt. Moves then travel between the players' apps. If a router or mobile carrier blocks that path, [Relay fallback](player-guide.md#relay-fallback) allows an explicit retry with your own TURN credentials. No relay service is bundled; the game still runs on the host's device. Quick connect needs the public signaling service during setup; a signaling outage does not end an already connected match.
+
+Tap a tower, then its destination. In 3D, drag to rotate and pinch to zoom. The view selector and **Symbols** switch are below the board. **Main menu** returns to the settings screen, asking before leaving an unfinished match.
 
 Keep multiplayer apps in the foreground. Mobile operating systems can suspend an app when you switch away or lock the screen; the existing reconnect deadlines still apply. In computer games, switching away pauses the playing clock and cancels the current search; returning resumes it. The between-round confirmation countdown still expires normally. Closing the app loses unfinished games. Display and difficulty preferences are saved.
 
@@ -130,4 +134,4 @@ node scripts/test-mobile-native.cjs
 
 Replace `<process-id>` with the returned number. The script connects to that existing app, plays a level-10 game, verifies a real AI-worker result, and checks symbols and both board views. Turn on airplane mode on the test device first to verify the native offline path. `MOBILE_CDP_URL` can override the forwarded address. Screenshots are written under `out/mobile-checks/`.
 
-Before distributing a build, install it on real devices and check screen locking, app switching, copying connection codes through a messaging app, and P2P between different Internet connections. Automated local tests do not cover every router or mobile operating-system policy.
+Before distributing a build, install it on real devices and check screen locking, app switching, sharing an invitation through a messaging app, and P2P between different Internet connections. Automated local tests do not cover every router or mobile operating-system policy.

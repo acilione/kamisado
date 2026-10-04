@@ -7,6 +7,7 @@ module.exports = {
       unpack: '**/*.node',
     },
     executableName: 'Kamisado',
+    protocols: [{ name: 'Kamisado invitation', schemes: ['kamisado'] }],
     ignore: [
       /^\/\.git($|\/)/,
       /^\/\.github($|\/)/,
@@ -32,26 +33,9 @@ module.exports = {
   rebuildConfig: {},
   makers: [
     {
-      name: '@electron-forge/maker-squirrel',
-      platforms: ['win32'],
-      config: {
-        name: 'Kamisado',
-      },
-    },
-    {
       name: '@electron-forge/maker-zip',
       platforms: ['darwin', 'win32', 'linux'],
       config: {},
-    },
-    {
-      name: '@electron-forge/maker-deb',
-      platforms: ['linux'],
-      config: { options: { bin: 'Kamisado', categories: ['Game', 'BoardGame'] } },
-    },
-    {
-      name: '@electron-forge/maker-rpm',
-      platforms: ['linux'],
-      config: { options: { bin: 'Kamisado', categories: ['Game', 'BoardGame'] } },
     },
   ],
 };

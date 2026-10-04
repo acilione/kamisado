@@ -25,15 +25,14 @@ async function run() {
       if (/^https?:/.test(request.url()) && new URL(request.url()).origin !== origin) remoteRequests.push(request.url());
     });
     await page.goto(origin);
-    assert.equal(await page.locator('#computer-options').isVisible(), false);
-    await page.locator('#opponent').selectOption('computer');
+    assert.equal(await page.locator('#computer-options').isVisible(), true);
     assert.equal(await page.locator('#computer-options').isVisible(), true);
     assert.equal(await page.locator('#ai-level option').count(), 10);
-    assert.equal(await page.locator('#create-btn').textContent(), 'Play computer');
+    assert.equal(await page.locator('#play-computer-btn').textContent(), 'Play with computer');
     await page.locator('#ai-level').selectOption('1');
     await page.locator('#color-mode').selectOption('black');
     await page.screenshot({ path: path.join(screenshots, 'computer-menu.png'), fullPage: true });
-    await page.locator('#create-btn').click();
+    await page.locator('#play-computer-btn').click();
     await page.locator('#game-screen').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#invite-panel').isVisible(), false);
     assert.match(await page.locator('#computer-status').textContent(), /Level 1/);
@@ -62,14 +61,14 @@ async function run() {
     await page.screenshot({ path: path.join(screenshots, 'computer-mobile.png'), fullPage: true });
     await page.locator('#leave-computer-btn').click();
     await page.locator('#menu-screen').waitFor({ state: 'visible' });
-    assert.equal(await page.locator('#opponent').inputValue(), 'computer');
+    assert.equal(await page.locator('#opponent').inputValue(), 'human', 'Returning to settings clears the previous game action');
     assert.equal(await page.locator('#ai-level').inputValue(), '1');
     await page.locator('#ai-level').selectOption('10');
     await page.reload();
     await page.locator('#menu-screen').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#ai-level').inputValue(), '10', 'Difficulty preference must survive reload');
     await page.locator('#color-mode').selectOption('white');
-    await page.locator('#create-btn').click();
+    await page.locator('#play-computer-btn').click();
     await page.locator('#game-screen').waitFor({ state: 'visible' });
     await page.waitForFunction(() => [...document.querySelectorAll('.piece.black')]
       .some(piece => piece.parentElement.dataset.r !== '0'));
@@ -79,10 +78,9 @@ async function run() {
 
     // Leave immediately during a new high-level search, then start a human lobby.
     // No stale worker update may reopen the abandoned board or overwrite that room.
-    await page.locator('#create-btn').click();
+    await page.locator('#play-computer-btn').click();
     await page.locator('#leave-computer-btn').click();
     await page.locator('#menu-screen').waitFor({ state: 'visible' });
-    await page.locator('#opponent').selectOption('human');
     await page.locator('#create-btn').click();
     await page.locator('#invite-panel').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#computer-status').isVisible(), false);

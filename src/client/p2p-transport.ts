@@ -1,5 +1,7 @@
 import { EventSocket, type EventTransport } from './event-socket.js';
 import { connectGameSocket, type GameSocket } from './transport.js';
+import { candidateCounts, selectedRoute } from './peer-network.js';
+import type { PeerDataChannel } from './automatic-peer.js';
 import type { Socket } from 'socket.io-client';
 import type { ClientToServerEvents, ServerToClientEvents } from '../shared/types.js';
 
@@ -37,6 +39,7 @@ interface SignalCode {
     gameId: string;
     sessionId: string;
     sdp: string;
+    relay?: boolean;
 }
 
 function record(value: unknown): value is Record<string, any> {
@@ -63,11 +66,17 @@ function readCode(code: string, expectedType: SignalCode['type']): SignalCode {
     } catch { throw new Error('This connection code is not valid. Copy it again.'); }
     if (!record(value) || value.v !== 1 || value.type !== expectedType || !validGameId(value.gameId) ||
         typeof value.sessionId !== 'string' || !/^[a-f0-9-]{36}$/.test(value.sessionId) ||
+        (value.relay !== undefined && typeof value.relay !== 'boolean') ||
         typeof value.sdp !== 'string' || value.sdp.length > 48000 ||
         !/^v=0\r?\n/.test(value.sdp) || !/^m=application /m.test(value.sdp) || /^m=(?!application )/m.test(value.sdp)) {
         throw new Error(`Paste a valid Kamisado ${expectedType === 'offer' ? 'invitation' : 'reply'} code.`);
     }
     return value as unknown as SignalCode;
+}
+
+export function invitationUsesRelay(code: string): boolean {
+    try { return readCode(code, 'offer').relay === true; }
+    catch { return false; }
 }
 
 function writeCode(value: SignalCode): string {
@@ -79,10 +88,11 @@ function writeCode(value: SignalCode): string {
     return code;
 }
 
-/** Manual signaling and a data-only WebRTC channel. No game or signaling relay is used. */
+/** Manual signaling and a data-only WebRTC channel; TURN is an explicit fallback. */
 export class P2pTransport {
     private peer: RTCPeerConnection | null = null;
-    private channel: RTCDataChannel | null = null;
+    private channel: RTCDataChannel | PeerDataChannel | null = null;
+    private removePeerListeners: (() => void) | null = null;
     private proxy: GameSocket | null = null;
     private socket = new P2pSocket(this);
     private status: P2pStatus = { state: 'idle', message: 'Ready to connect to a friend.' };
@@ -99,6 +109,7 @@ export class P2pTransport {
     private incomingCount = 0;
     private proxyAcks = new Set<number>();
     private lastAckId = 0;
+    private usingRelay = false;
 
     constructor(readonly role: 'host' | 'guest', private readonly options: P2pOptions = {}) {}
 
@@ -113,9 +124,9 @@ export class P2pTransport {
         return () => { this.statusListeners.delete(callback); };
     }
 
-    async createOffer(gameId: string): Promise<string> {
+    async createOffer(gameId: string, relay?: RTCIceServer): Promise<string> {
         if (this.role !== 'host' || !validGameId(gameId)) throw new Error('Create a multiplayer game before inviting a friend.');
-        const peer = this.makePeer();
+        const peer = this.makePeer(relay);
         const generation = this.begin(peer, gameId, crypto.randomUUID());
         try {
             this.attachChannel(peer.createDataChannel('kamisado', { ordered: true, protocol: 'kamisado-v1' }), generation);
@@ -123,7 +134,7 @@ export class P2pTransport {
             await this.operation(peer.setLocalDescription(description), generation);
             await this.gather(peer, generation);
             this.ensureCurrent(generation);
-            const code = writeCode({ v: 1, type: 'offer', gameId, sessionId: this.sessionId, sdp: peer.localDescription!.sdp });
+            const code = writeCode({ v: 1, type: 'offer', gameId, sessionId: this.sessionId, sdp: peer.localDescription!.sdp, ...(relay ? { relay: true } : {}) });
             this.update('waiting-answer', 'Send the invitation code to your friend, then paste their reply. This code expires in ten minutes.');
             this.startExchangeDeadline(generation);
             return code;
@@ -133,11 +144,11 @@ export class P2pTransport {
         }
     }
 
-    async acceptOffer(code: string): Promise<string> {
+    async acceptOffer(code: string, relay?: RTCIceServer): Promise<string> {
         if (this.role !== 'guest') throw new Error('Only the joining player can accept an invitation.');
         const offer = readCode(code, 'offer');
         // Validate SDP on a new connection before replacing any working session.
-        const peer = this.makePeer();
+        const peer = this.makePeer(relay);
         const beforeValidation = this.generation;
         try { await this.operation(peer.setRemoteDescription({ type: 'offer', sdp: offer.sdp }), beforeValidation); }
         catch {
@@ -179,7 +190,7 @@ export class P2pTransport {
         this.ensureCurrent(generation);
         this.clearExchangeDeadline();
         if (this.status.state !== 'connected') {
-            this.update('connecting', 'Connecting directly to your friend…');
+            this.update('connecting', 'Connecting to your friend…');
             this.startConnectionDeadline(generation);
         }
     }
@@ -189,22 +200,34 @@ export class P2pTransport {
         this.update('closed', 'Peer connection closed.');
     }
 
+    /** Attach an authenticated quick-join channel to the same room-scoped game protocol. */
+    acceptChannel(peer: RTCPeerConnection, channel: PeerDataChannel, gameId?: string): void {
+        if (this.role === 'host' && !validGameId(gameId)) throw new Error('Create a game before inviting a friend.');
+        const generation = this.begin(peer, this.role === 'host' ? gameId! : null, crypto.randomUUID(), false);
+        this.attachChannel(channel, generation);
+        this.update('connecting', 'Opening the game…');
+        this.startConnectionDeadline(generation);
+    }
+
     sendRequest(frame: Record<string, unknown>): boolean {
         return this.role === 'guest' && this.send(frame);
     }
 
-    private makePeer(): RTCPeerConnection {
+    private makePeer(relay?: RTCIceServer): RTCPeerConnection {
         if (typeof RTCPeerConnection !== 'function') throw new Error('This browser does not support peer connections. Open the desktop app or a current browser.');
         return new RTCPeerConnection({
-            iceServers: this.options.iceServers ?? [{ urls: 'stun:stun.l.google.com:19302' }],
+            iceServers: relay ? [relay] : this.options.iceServers ?? [{ urls: 'stun:stun.l.google.com:19302' }],
+            // The first attempt never contacts TURN. Only an explicit retry allocates a relay.
+            iceTransportPolicy: relay ? 'relay' : 'all',
             bundlePolicy: 'max-bundle',
         });
     }
 
-    private begin(peer: RTCPeerConnection, gameId: string, sessionId: string): number {
+    private begin(peer: RTCPeerConnection, gameId: string | null, sessionId: string, manual = true): number {
         this.release();
         const generation = this.generation;
         this.peer = peer;
+        this.usingRelay = peer.getConfiguration().iceTransportPolicy === 'relay';
         this.room = gameId;
         this.sessionId = sessionId;
         if (this.role === 'host') {
@@ -221,16 +244,16 @@ export class P2pTransport {
         this.incomingWindow = Date.now();
         this.incomingCount = 0;
         this.lastAckId = 0;
-        peer.ondatachannel = event => {
+        const dataChannel = (event: RTCDataChannelEvent) => {
             if (this.role !== 'guest' || this.channel || event.channel.label !== 'kamisado' || event.channel.protocol !== 'kamisado-v1') {
                 event.channel.close();
                 return;
             }
             this.attachChannel(event.channel, generation);
         };
-        peer.onconnectionstatechange = () => {
+        const connectionChanged = () => {
             if (generation !== this.generation) return;
-            if (peer.connectionState === 'failed') this.fail('A direct connection could not be established. Try the same Wi-Fi or a shared VPN.');
+            if (peer.connectionState === 'failed') this.fail(this.connectionFailure());
             else if (peer.connectionState === 'disconnected') {
                 this.socket.setConnected(false, 'Peer connection interrupted');
                 this.update('disconnected', 'The peer connection was interrupted. Waiting to reconnect…');
@@ -240,7 +263,13 @@ export class P2pTransport {
                 else if (this.role === 'guest') this.send({ kind: 'ready-request' });
             }
         };
-        this.update('gathering', 'Preparing a direct connection…');
+        if (manual) peer.addEventListener('datachannel', dataChannel);
+        peer.addEventListener('connectionstatechange', connectionChanged);
+        this.removePeerListeners = () => {
+            peer.removeEventListener('datachannel', dataChannel);
+            peer.removeEventListener('connectionstatechange', connectionChanged);
+        };
+        this.update('gathering', this.usingRelay ? 'Preparing an encrypted relay connection…' : 'Preparing a direct connection…');
         return generation;
     }
 
@@ -269,28 +298,38 @@ export class P2pTransport {
 
     private gather(peer: RTCPeerConnection, generation: number): Promise<void> {
         this.ensureCurrent(generation);
-        if (peer.iceGatheringState === 'complete') return Promise.resolve();
+        const checkRelay = () => {
+            if (this.usingRelay && !candidateCounts(peer.localDescription?.sdp).relay) {
+                return new Error('The relay did not provide an address. Check its credentials, expiry, and connectivity. Try the provider’s TLS/TCP address if available.');
+            }
+        };
+        if (peer.iceGatheringState === 'complete') {
+            const error = checkRelay();
+            return error ? Promise.reject(error) : Promise.resolve();
+        }
         return new Promise((resolve, reject) => {
             const finish = (error?: Error) => {
                 clearTimeout(timer);
                 peer.removeEventListener('icegatheringstatechange', changed);
                 if (this.cancelGathering === cancel) this.cancelGathering = null;
-                error ? reject(error) : resolve();
+                const failure = error ?? checkRelay();
+                failure ? reject(failure) : resolve();
             };
             const cancel = () => finish(new Error('Connection setup was cancelled.'));
             const changed = () => { if (peer.iceGatheringState === 'complete') finish(); };
             const timer = setTimeout(() => {
                 // A slow/unreachable STUN service must not block usable local candidates.
-                if (/^a=candidate:/m.test(peer.localDescription?.sdp || '')) finish();
+                if (this.usingRelay) finish(checkRelay());
+                else if (/^a=candidate:/m.test(peer.localDescription?.sdp || '')) finish();
                 else finish(new Error('No network address was found. Check your connection and try again.'));
-            }, Math.min(10000, Math.max(100, this.options.gatheringTimeoutMs ?? 10000)));
+            }, Math.min(20000, Math.max(100, this.options.gatheringTimeoutMs ?? (this.usingRelay ? 20000 : 10000))));
             this.cancelGathering = cancel;
             peer.addEventListener('icegatheringstatechange', changed);
             changed();
         });
     }
 
-    private attachChannel(channel: RTCDataChannel, generation: number): void {
+    private attachChannel(channel: RTCDataChannel | PeerDataChannel, generation: number): void {
         this.channel = channel;
         channel.onopen = () => {
             if (generation !== this.generation) return;
@@ -298,7 +337,7 @@ export class P2pTransport {
             this.startConnectionDeadline(generation);
             if (this.role === 'host') this.connectProxy(generation);
         };
-        channel.onmessage = event => {
+        channel.onmessage = (event: { data: unknown }) => {
             if (generation !== this.generation) return;
             if (typeof event.data !== 'string' || event.data.length > MAX_MESSAGE_LENGTH) {
                 this.fail('The peer sent an invalid message.');
@@ -346,7 +385,29 @@ export class P2pTransport {
         this.clearConnectionDeadline();
         this.clearExchangeDeadline();
         this.send({ kind: 'ready', gameId: this.room });
-        this.update('connected', 'Connected directly to your friend.');
+        this.connectedStatus();
+    }
+
+    private connectedStatus(): void {
+        this.update('connected', 'Connected to your friend.');
+        const peer = this.peer;
+        const generation = this.generation;
+        if (!peer) return;
+        void peer.getStats().then(stats => {
+            if (generation !== this.generation || this.status.state !== 'connected') return;
+            const route = selectedRoute(stats);
+            if (route) this.update('connected', route === 'relay'
+                ? 'Connected through an encrypted relay. The game runs on the host’s device.'
+                : 'Connected directly to your friend.');
+        }).catch(() => { /* Route details are optional; the data channel is already usable. */ });
+    }
+
+    private connectionFailure(timeout = false): string {
+        if (this.usingRelay) return 'The relay connection failed. Keep both apps open, check the relay credentials, and exchange new codes. Try the provider’s TLS/TCP address if available.';
+        const publicAddress = candidateCounts(this.peer?.localDescription?.sdp).srflx > 0;
+        return (timeout ? 'The direct connection timed out. ' : 'A direct connection could not be established. ') +
+            (!publicAddress ? 'STUN did not discover a public address on this device. ' : '') +
+            'Keep both apps open and exchange fresh codes. If it fails again, use Relay fallback with a TURN service; some routers and mobile carriers block direct connections.';
     }
 
     private receiveRequest(frame: Record<string, any>): void {
@@ -409,10 +470,11 @@ export class P2pTransport {
     }
 
     private receiveResponse(frame: Record<string, any>): void {
-        if (frame.kind === 'ready' && frame.gameId === this.room) {
+        if (frame.kind === 'ready' && validGameId(frame.gameId) && (this.room === null || frame.gameId === this.room)) {
+            this.room = frame.gameId;
             this.clearConnectionDeadline();
             this.clearExchangeDeadline();
-            this.update('connected', 'Connected directly to your friend.');
+            this.connectedStatus();
             this.socket.setConnected(true);
         } else if (frame.kind === 'disconnected' && typeof frame.reason === 'string' && frame.reason.length <= 256) {
             this.socket.setConnected(false, frame.reason);
@@ -441,7 +503,7 @@ export class P2pTransport {
         if (this.connectionTimer) return;
         this.connectionTimer = setTimeout(() => {
             this.connectionTimer = null;
-            if (generation === this.generation) this.fail('The direct connection timed out. Exchange new codes, or try the same Wi-Fi or a shared VPN.');
+            if (generation === this.generation) this.fail(this.connectionFailure(true));
         }, Math.min(30000, Math.max(100, this.options.connectionTimeoutMs ?? 30000)));
     }
 
@@ -482,13 +544,14 @@ export class P2pTransport {
         this.cancelGathering = null;
         this.clearConnectionDeadline();
         this.clearExchangeDeadline();
+        this.removePeerListeners?.();
+        this.removePeerListeners = null;
         if (this.channel) {
             this.channel.onopen = this.channel.onclose = this.channel.onerror = this.channel.onmessage = null;
             this.channel.close();
             this.channel = null;
         }
         if (this.peer) {
-            this.peer.ondatachannel = this.peer.onconnectionstatechange = null;
             this.peer.close();
             this.peer = null;
         }
