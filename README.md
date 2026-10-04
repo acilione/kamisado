@@ -7,19 +7,21 @@ Play Kamisado against a friend or an offline computer opponent. The color you la
 
 The game has realistic 2D and 3D boards, a symbol mode for players who have difficulty distinguishing colors, and ten computer difficulty levels. Matches support sumo promotions, optional clocks, and standard, fill, or random starting positions.
 
-## Download and play
+## Get the game
 
-Open [Releases](https://github.com/acilione/kamisado/releases) and choose an application download from **Assets**. The desktop app includes its runtime; you do not need Node.js or development tools.
+There are no published releases or public installer downloads yet. To run the game now, follow [Build and run from source](#build-and-run-from-source) below, or ask the maintainer for a test build.
 
-| Your computer | Download |
-| --- | --- |
-| Windows, Intel or AMD 64-bit | `Kamisado-<version> Setup.exe`, or the `win32-x64` ZIP |
-| Debian or Ubuntu, 64-bit | The `.deb` package |
-| Fedora-compatible Linux, 64-bit | The `.rpm` package, when included in the release |
-| Other Linux, Intel or AMD 64-bit | The `linux-x64` ZIP; system libraries may be required |
-| Mac | macOS packaging is configured, but automatic Mac releases and testing are not set up yet. See the [Mac instructions](docs/player-guide.md#mac). |
+If you receive a packaged desktop build, it includes its runtime and does not require Node.js or development tools. The [player guide](docs/player-guide.md) explains how to open it and start a game. GitHub's **Source code** archives contain the project files and must be built before playing.
 
-The [player guide](docs/player-guide.md) explains installation on each platform, how to start a game, and connection troubleshooting. If a release has no application assets yet, GitHub's **Source code** archives are not a replacement for the desktop download.
+Local builds are collected in `out/release/`:
+
+| Folder | Open to play | File to share |
+| --- | --- | --- |
+| `Windows-desktop` | `Kamisado/Kamisado.exe` | The `Windows-x64-portable.zip` archive |
+| `Linux-desktop` | `Kamisado/Kamisado` | The `Linux-x64-portable.zip` archive |
+| `Android` | Install the `.apk` on your phone | The `.apk` file |
+
+Desktop builds run without installation. Extract the whole ZIP and keep its files together. On Windows, extract to a Windows folder such as Downloads and open `Kamisado.exe` in Explorer; do not launch the Linux build through WSL. Each platform folder includes a start guide and SHA-256 checksums. These generated files are not committed to Git.
 
 ## Mobile
 
@@ -29,13 +31,173 @@ Android and iOS apps use the same game code through Capacitor. They support offl
 
 | Mode | What you need |
 | --- | --- |
-| Computer | One desktop app. Works offline, with difficulty levels 1–10. |
+| Computer | One desktop or mobile app. Works offline, with difficulty levels 1–10. |
 | LAN | Devices on the same Wi-Fi or Ethernet network. The host runs the app; the other player opens an invitation in a browser. |
-| Internet P2P | Both players run the app and exchange an invitation code and a reply code. |
+| Internet P2P | Set the game options, create a game, and share its app link. Your friend opens the link to join. |
 
-Internet P2P runs the game on the host's computer and sends moves directly between the players. It uses a public STUN service to discover connection addresses. Some networks block direct connections; this mode has no relay fallback. The optional ngrok relay is available separately.
+**Quick connect** exchanges the connection details through [PeerJS Cloud](https://peerjs.com/server/cloud). Neither the players nor the app's maintainer need an account or a server to run. Both players need an updated app. Share the invitation privately; anyone holding it can try to join. The [player guide](docs/player-guide.md#over-the-internet-with-p2p) covers setup and the manual alternative.
+
+Internet P2P runs the game on the host's device and first tries to send moves directly between the players. Public STUN discovers connection addresses; PeerJS Cloud handles setup messages and does not carry moves. New Quick connect sessions depend on that public service being available. If a router or mobile carrier blocks the direct path, the connection panel offers an optional [TURN relay retry](docs/player-guide.md#relay-fallback). This requires credentials from a TURN provider; no relay service is bundled. The optional ngrok connection mode is available separately.
 
 Keep the host app open during a match. Games are held in memory and are lost when the host closes the app or ends the session.
+
+## Build and run from source
+
+Install Git and Node.js **22.12 or newer** with npm; Node.js 24 is recommended. Get the source using the [developer setup](docs/development.md#get-the-source), then run this once from the repository root:
+
+```sh
+npm ci
+```
+
+All commands below start from the repository root. Build desktop apps on the operating system they will run on, using its native Node.js installation. WSL builds Linux apps; use a separate Windows checkout and Windows Node.js to build Windows apps. Mobile commands require the mobile implementation, currently on the `feature/mobile` branch. Before collecting another release, move the previous platform folder out of `out/release/`; collection refuses to mix old and new builds.
+
+### Browser on Windows, Linux, or macOS
+
+Compile and start the local server:
+
+```sh
+npm run build
+npm start
+```
+
+Open `http://localhost:3000`. Stop the server with **Ctrl+C**. If port 3000 is already occupied, choose another port:
+
+```powershell
+# Windows PowerShell
+$env:PORT = '3001'
+npm start
+```
+
+```sh
+# Linux or macOS
+PORT=3001 npm start
+```
+
+Then open `http://localhost:3001`. Rebuild after changing TypeScript. For server development, `npm run dev` reloads the server automatically; it does not rebuild the browser bundle.
+
+### Windows desktop
+
+In PowerShell, compile and launch the app:
+
+```powershell
+npm run desktop:dev
+```
+
+To build and collect a Windows x64 portable app and ZIP:
+
+```powershell
+npm run desktop:make -- --arch=x64
+npm run release:desktop
+```
+
+The ready-to-run app and ZIP are in `out/release/Windows-desktop/`. To run it directly:
+
+```powershell
+& .\out\release\Windows-desktop\Kamisado\Kamisado.exe
+```
+
+### Linux desktop
+
+From a graphical desktop session, compile and launch the app:
+
+```sh
+npm run desktop:dev
+```
+
+To build and collect a portable Linux x64 app and ZIP on Debian or Ubuntu:
+
+```sh
+sudo apt-get install -y zip
+npm run desktop:make -- --arch=x64
+npm run release:desktop
+```
+
+The app and ZIP are in `out/release/Linux-desktop/`. To run the app:
+
+```sh
+./out/release/Linux-desktop/Kamisado/Kamisado
+```
+
+No package installation is needed to run the game. Electron still uses your desktop's system libraries; see the [Linux player guide](docs/player-guide.md#linux).
+
+### macOS desktop
+
+On a Mac, compile and launch the app:
+
+```sh
+npm run desktop:dev
+```
+
+Build a ZIP and open the unpacked app on Apple Silicon:
+
+```sh
+npm run desktop:make -- --arch=arm64
+npm run release:desktop
+open out/release/macOS-desktop/Kamisado/Kamisado.app
+```
+
+For an Intel Mac, replace `arm64` with `x64`. The app and ZIP are in `out/release/macOS-desktop/`. Install Apple's Command Line Tools with `xcode-select --install` if a native dependency needs compilation. macOS desktop packaging is configured but has not been validated; signing and notarization are not configured.
+
+### Android from Windows, Linux, or macOS
+
+Install Android Studio, **JDK 21**, Android SDK Platform **36**, Build Tools **36.0.0**, and Platform Tools. Set `JAVA_HOME` to your JDK directory and `ANDROID_HOME` to your SDK directory. Use a checkout and SDK on the same operating system.
+
+To compile and run through Android Studio:
+
+```sh
+npm run mobile:android
+```
+
+This builds the shared game assets, synchronizes the native project, and opens Android Studio. Select a connected phone or emulator and press **Run**. For a physical phone, enable USB debugging and accept the authorization prompt.
+
+To build a debug APK from the terminal instead:
+
+```powershell
+# Windows PowerShell
+npm run mobile:sync
+.\mobile\android\gradlew.bat -p mobile/android assembleDebug
+```
+
+```sh
+# Linux or macOS
+npm run mobile:sync
+./mobile/android/gradlew -p mobile/android assembleDebug
+```
+
+The APK is `mobile/android/app/build/outputs/apk/debug/app-debug.apk`. Run `npm run release:android` to copy it into `out/release/Android/` with instructions and checksums. With the SDK's `platform-tools` directory on your `PATH` and one authorized phone or emulator connected, install and launch it:
+
+```sh
+adb devices
+adb install -r mobile/android/app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n io.github.acilione.kamisado/.MainActivity
+```
+
+This produces a development-signed APK. See the [mobile guide](docs/mobile.md#android-build) for release signing. Run `npm run mobile:sync` before each native rebuild after changing game code or assets.
+
+### iOS on macOS
+
+Use a Mac with **Xcode 26 or newer** and its command-line tools. Build the shared assets and open the native project:
+
+```sh
+npm run mobile:ios
+```
+
+In Xcode, select the **App** scheme and a simulator or connected iPhone, then press **Run**. For a physical iPhone, choose your signing team under **Signing & Capabilities**. The project uses Swift Package Manager; CocoaPods is not needed.
+
+For a terminal build, start one iOS simulator in Xcode, then run:
+
+```sh
+npm run mobile:sync
+xcodebuild -project mobile/ios/App/App.xcodeproj -scheme App \
+  -configuration Debug -destination 'generic/platform=iOS Simulator' \
+  -derivedDataPath out/ios CODE_SIGNING_ALLOWED=NO build
+xcrun simctl install booted out/ios/Build/Products/Debug-iphonesimulator/App.app
+xcrun simctl launch booted io.github.acilione.kamisado
+```
+
+The unsigned simulator build cannot be installed on an iPhone. Native iOS builds still need verification on a Mac; see the [iOS guide](docs/mobile.md#ios-build) for signing and distribution.
+
+For tests, build troubleshooting, and the code layout, see [Development](docs/development.md) and [Code structure](docs/architecture.md).
 
 ## Documentation
 

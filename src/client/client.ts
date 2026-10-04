@@ -7,9 +7,11 @@ import { RealisticBoard3D } from './board-3d.js';
 import { InvitationPanel } from './invitation.js';
 import { connectGameSocket } from './transport.js';
 import { PeerPanel } from './peer-panel.js';
+import { normalizePeerInvitation } from '../shared/peer-invitation.js';
 
 const requestedPeerMode = new URLSearchParams(window.location.search).get('peer');
 const peer = requestedPeerMode === 'host' || requestedPeerMode === 'guest' ? new PeerPanel(requestedPeerMode) : null;
+peer?.updateGame(null);
 const socket = peer?.role === 'guest' ? peer.transport.getGuestSocket() : connectGameSocket();
 
 // State
@@ -52,16 +54,13 @@ if (new URLSearchParams(window.location.search).get('opponent') === 'computer') 
     opponentSelect.value = 'computer';
 }
 if (peer) {
-    opponentSelect.value = 'human';
-    opponentSelect.disabled = true;
     document.getElementById('join-game-options')!.classList.add('hidden');
-    document.getElementById('join-separator')!.classList.add('hidden');
+    document.getElementById('join-separator')!.classList.toggle('hidden', peer.role === 'guest');
+    document.getElementById('app-join-options')!.classList.toggle('hidden', peer.role === 'guest');
     if (peer.role === 'guest') document.getElementById('create-game-options')!.classList.add('hidden');
 }
 function updateOpponentOptions(): void {
-    const solo = opponentSelect.value === 'computer';
-    document.getElementById('computer-options')!.classList.toggle('hidden', !solo);
-    document.getElementById('create-btn')!.textContent = solo ? 'Play computer' : 'Create Game';
+    document.getElementById('computer-options')!.classList.remove('hidden');
 }
 opponentSelect.addEventListener('change', updateOpponentOptions);
 aiLevelSelect.addEventListener('change', () => {
@@ -194,8 +193,8 @@ function refreshConnectionState(): void {
     notice.classList.toggle('hidden', connectionReady && !hostStopped);
     notice.textContent = hostStopped
         ? 'The host stopped this game. Ask them for a new invitation.'
-        : peer?.role === 'guest' ? 'Connect to your friend using the connection codes above.' : 'Connection lost. Reconnecting to the host…';
-    for (const id of ['create-btn', 'join-btn']) {
+        : peer?.role === 'guest' ? 'Open or paste your friend’s invitation link to join.' : 'Connection lost. Reconnecting to the host…';
+    for (const id of ['create-btn', 'play-computer-btn', 'join-btn']) {
         (document.getElementById(id) as HTMLButtonElement).disabled = !connectionReady || hostStopped;
     }
     selectedPiece = null;
@@ -249,8 +248,13 @@ socket.on('connect', () => {
 });
 
 // Event Listeners
-document.getElementById('create-btn')!.addEventListener('click', () => {
+document.getElementById('play-computer-btn')!.addEventListener('click', () => {
+    createGame('computer');
+});
+document.getElementById('create-btn')!.addEventListener('click', () => createGame('human'));
+function createGame(opponent: 'computer' | 'human'): void {
     if (!connectionReady || hostStopped || peer?.role === 'guest') return;
+    opponentSelect.value = opponent;
     socket.emit('createGame', {
         opponent: opponentSelect.value === 'computer' ? 'computer' : 'human',
         ...(opponentSelect.value === 'computer' ? { aiLevel: Number(aiLevelSelect.value) } : {}),
@@ -260,10 +264,39 @@ document.getElementById('create-btn')!.addEventListener('click', () => {
         positionMode: (document.getElementById('position-mode') as HTMLSelectElement).value,
         playerId,
     }, currentJoinResponse());
+    opponentSelect.value = 'human';
+}
+
+document.getElementById('join-peer-btn')!.addEventListener('click', () => {
+    const value = (document.getElementById('app-join-link') as HTMLInputElement).value.trim();
+    try {
+        if (value && /^https?:/.test(value)) { openInvitation(normalizeGameInvitation(value)); return; }
+        const code = value ? normalizePeerInvitation(value) : undefined;
+        if (window.__KAMISADO_JOIN_PEER__) window.__KAMISADO_JOIN_PEER__(code);
+        else if (window.parent !== window) window.parent.postMessage({ type: 'kamisado:join-peer', invitation: code }, '*');
+        else window.location.assign('/?peer=guest' + (code ? '#' + code : ''));
+    } catch (error) { alert(error instanceof Error ? error.message : 'Invalid invitation.'); }
 });
+window.addEventListener('hashchange', () => {
+    if (peer?.role !== 'guest' || !window.location.hash) return;
+    if (gameState && !gameState.finished && !confirm('Leave this game and open the new invitation?')) {
+        history.replaceState({}, '', location.pathname + location.search);
+        return;
+    }
+    // A second app link can be a same-document navigation. Recreate the transport cleanly.
+    window.location.reload();
+});
+if (peer?.role === 'guest' && window.location.hash) {
+    const invitationCode = window.location.hash.slice(1);
+    history.replaceState({}, '', window.location.pathname + window.location.search);
+    void peer.joinInvitation(invitationCode).catch(error => {
+        document.getElementById('peer-status')!.textContent = error instanceof Error ? error.message : 'Invalid invitation.';
+    });
+}
 
 let invitationRequest = 0;
 function openInvitation(url: string): void {
+    if (window.__KAMISADO_OPEN_LAN__) { window.__KAMISADO_OPEN_LAN__(url); return; }
     if (window.parent === window) {
         window.location.assign(url);
         return;
@@ -347,6 +380,8 @@ function currentJoinResponse(): (response: JoinResponse) => void {
 }
 
 function returnToMenu(): void {
+    if (window.parent !== window) window.parent.postMessage({ type: 'kamisado:session', active: false }, '*');
+    opponentSelect.value = 'human';
     gameId = null;
     gameState = null;
     peer?.updateGame(null);
@@ -682,7 +717,8 @@ function handleCellClick(r: number, c: number): void {
 
 function updateUI(): void {
     if (!gameState) return;
-    peer?.updateGame(gameState.id, gameState.finished);
+    if (window.parent !== window) window.parent.postMessage({ type: 'kamisado:session', active: !gameState.finished }, '*');
+    peer?.updateGame(gameState.computer ? null : gameState.id, gameState.finished);
     const computer = gameState.computer;
     const computerStatus = document.getElementById('computer-status')!;
     computerStatus.classList.toggle('hidden', !computer);

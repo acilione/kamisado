@@ -10,12 +10,26 @@ import { ConnectivityProviderManager } from './connectivity/provider-manager.js'
 import { HostingController, validateStartRequest } from './hosting-controller.js';
 import { TokenVault } from './token-vault.js';
 import { normalizeGameInvitation } from '../shared/invitation-url.js';
+import { normalizePeerInvitation } from '../shared/peer-invitation.js';
 
 const DEFAULT_DESKTOP_PORT = 32145;
 let controlWindow: BrowserWindow | null = null;
 let hosting: HostingController | null = null;
 let shutdownComplete = false;
 let shutdownStarted = false;
+let pendingInvitation: string | null = null;
+let invitationListenerReady = false;
+
+function receiveInvitation(value: unknown): void {
+    if (typeof value !== 'string' || !value.startsWith('kamisado://')) return;
+    try {
+        const code = normalizePeerInvitation(value);
+        if (invitationListenerReady && controlWindow) controlWindow.webContents.send('game:invitation', code);
+        else pendingInvitation = code;
+    } catch { /* Unknown schemes and malformed external input never navigate the renderer. */ }
+}
+for (const argument of process.argv) receiveInvitation(argument);
+app.on('open-url', (event, url) => { event.preventDefault(); receiveInvitation(url); });
 
 if (process.env.KAMISADO_USER_DATA_DIR) {
     app.setPath('userData', path.resolve(process.env.KAMISADO_USER_DATA_DIR));
@@ -88,6 +102,13 @@ function requireTrustedShell(event: IpcMainInvokeEvent): HostingController {
 }
 
 function registerIpcHandlers(): void {
+    ipcMain.handle('game:take-invitation', event => {
+        requireTrustedShell(event);
+        invitationListenerReady = true;
+        const value = pendingInvitation;
+        pendingInvitation = null;
+        return value;
+    });
     ipcMain.handle('hosting:get-state', event => requireTrustedShell(event).getState());
     ipcMain.handle('hosting:start', (event, request: unknown) => requireTrustedShell(event).start(validateStartRequest(request)));
     ipcMain.handle('hosting:stop', event => requireTrustedShell(event).stop());
@@ -113,13 +134,17 @@ function registerIpcHandlers(): void {
 if (squirrelStartup || !app.requestSingleInstanceLock()) {
     app.quit();
 } else {
-    app.on('second-instance', () => {
+    app.on('second-instance', (_event, argv) => {
+        for (const argument of argv) receiveInvitation(argument);
         if (controlWindow?.isMinimized()) controlWindow.restore();
         controlWindow?.show();
         controlWindow?.focus();
     });
 
     app.whenReady().then(async () => {
+        if (process.defaultApp && process.argv[1]) {
+            app.setAsDefaultProtocolClient('kamisado', process.execPath, [path.resolve(process.argv[1])]);
+        } else app.setAsDefaultProtocolClient('kamisado');
         let vault: TokenVault | null = null;
         let savedToken: string | null = null;
         if (canUseSecureTokenStorage()) {

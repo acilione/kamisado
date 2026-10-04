@@ -49,10 +49,11 @@ jobs:
       - run: npm ci
       - run: npm run mobile:sync
       - run: bash mobile/android/gradlew -p mobile/android assembleDebug --console=plain
+      - run: npm run release:android
       - uses: actions/upload-artifact@v4
         with:
-          name: Kamisado-Android-debug
-          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          name: Kamisado-Android-test
+          path: out/release/Android/*
           if-no-files-found: error
           retention-days: 14
 

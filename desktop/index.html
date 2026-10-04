@@ -55,7 +55,7 @@
                     <span class="choice-icon" aria-hidden="true">↗</span>
                     <span class="choice-copy">
                         <span class="choice-title">Host Internet game</span>
-                        <small>You both open the app. Share an invitation code, then paste your friend's reply.</small>
+                        <small>Share an app link. Your friend opens it to join.</small>
                     </span>
                     <span class="arrow" aria-hidden="true">→</span>
                 </button>
@@ -63,7 +63,7 @@
                     <span class="choice-icon" aria-hidden="true">↙</span>
                     <span class="choice-copy">
                         <span class="choice-title">Join Internet game</span>
-                        <small>Paste your friend's invitation code and send back a reply. No account needed.</small>
+                        <small>Open or paste your friend's invitation link. No account needed.</small>
                     </span>
                     <span class="arrow" aria-hidden="true">→</span>
                 </button>
@@ -85,7 +85,7 @@
                 </button>
             </div>
 
-            <p id="peer-help" class="fine-print peer-help">Internet games connect the two apps directly, with no central game server. Some networks block direct connections; the connection screen will explain if this happens.</p>
+            <p id="peer-help" class="fine-print peer-help">Share one invitation to connect. PeerJS Cloud handles setup; the game runs on the host's device. Direct P2P is tried first, with an optional relay retry for restrictive networks.</p>
             <ol id="host-steps" class="host-steps" aria-label="How to host a LAN game">
                 <li>Host a LAN game, then choose your game options.</li>
                 <li>Share the invitation link or let your friend scan its QR code.</li>
@@ -139,7 +139,7 @@
 
         <section id="join-panel" class="join-card" aria-labelledby="join-title">
             <h2 id="join-title">Join with a link</h2>
-            <p>For a LAN or relay game, paste your friend's invitation to play in your usual browser. For an Internet invitation code, choose Join Internet game above.</p>
+            <p>App links open here. LAN links open in your browser.</p>
             <form id="join-form">
                 <label for="join-invitation">Invitation link</label>
                 <div class="join-fields">
@@ -169,7 +169,7 @@
     </main>
 
     <section id="game-panel" class="hidden" aria-label="Kamisado game">
-        <iframe id="game-frame" title="Kamisado game" sandbox="allow-scripts allow-same-origin allow-modals" allow="clipboard-write"></iframe>
+        <iframe id="game-frame" title="Kamisado game" sandbox="allow-scripts allow-same-origin allow-modals" allow="clipboard-write; web-share"></iframe>
     </section>
 </body>
 </html>

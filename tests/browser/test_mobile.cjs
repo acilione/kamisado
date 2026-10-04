@@ -16,6 +16,10 @@ async function playFirstMove(page) {
   await page.locator('.cell[data-r="1"][data-c="0"]').tap();
 }
 async function connect(host, guest) {
+  for (const page of [host, guest]) {
+    await page.locator('#peer-advanced > summary').click();
+    await page.locator('#peer-method').selectOption('manual');
+  }
   await host.locator('#peer-generate').click();
   await host.waitForFunction(() => document.getElementById('peer-outgoing').value.startsWith('KAMISADO1.'));
   await guest.locator('#peer-incoming').fill(await host.locator('#peer-outgoing').inputValue());
@@ -69,20 +73,17 @@ async function run() {
     const sockets = [];
     solo.page.on('request', request => { if (request.url().includes('/socket.io/')) sockets.push(request.url()); });
     await solo.page.goto(origin);
-    await solo.page.locator('#mobile-home').waitFor();
-    await solo.page.locator('#mobile-home details').click();
-    await solo.page.locator('#mobile-invitation').fill('javascript:alert(1)');
-    await solo.page.locator('#mobile-lan').click();
-    assert.match(await solo.page.locator('#mobile-error').textContent(), /complete invitation/);
+    await solo.page.locator('#menu-screen').waitFor();
+    assert.equal(await solo.page.locator('#peer-panel').isVisible(), false);
+    assert.equal(await solo.page.locator('#play-computer-btn').isVisible(), true);
     await solo.page.screenshot({ path: path.join(screenshots, 'home.png'), fullPage: true });
     // Playwright WebKit's offline flag also blocks local blob: worker loading.
     // Block every HTTP request there; Chromium additionally disables its network stack.
     await solo.ctx.route(/^https?:/, route => route.abort());
     if (engine === chromium) await solo.ctx.setOffline(true);
-    await solo.page.locator('#mobile-computer').tap();
     await solo.page.locator('#color-mode').selectOption('black');
     await solo.page.locator('#ai-level').selectOption('1');
-    await solo.page.locator('#create-btn').tap();
+    await solo.page.locator('#play-computer-btn').tap();
     await solo.page.locator('#game-screen').waitFor();
     await playFirstMove(solo.page);
     await solo.page.waitForFunction(() => [...document.querySelectorAll('.piece.white')].some(p => p.parentElement.dataset.r !== '7'));
@@ -103,7 +104,7 @@ async function run() {
     for (let level = 1; level <= 10; level++) {
       await solo.page.locator('#ai-level').selectOption(String(level));
       await solo.page.locator('#color-mode').selectOption('white');
-      await solo.page.locator('#create-btn').tap();
+      await solo.page.locator('#play-computer-btn').tap();
       await solo.page.waitForFunction(() => [...document.querySelectorAll('.piece.black')].some(p => p.parentElement.dataset.r !== '0'));
       await solo.page.locator('#leave-computer-btn').tap();
     }
@@ -115,7 +116,7 @@ async function run() {
 
     // App switching cancels a running search and resumes without applying a stale move.
     await solo.page.locator('#timer').selectOption('60');
-    await solo.page.locator('#create-btn').tap();
+    await solo.page.locator('#play-computer-btn').tap();
     await solo.page.evaluate(() => {
       Object.defineProperty(document, 'hidden', { configurable: true, value: true });
       document.dispatchEvent(new Event('visibilitychange'));
@@ -137,8 +138,7 @@ async function run() {
       const guest = await context();
       await host.page.goto(mobileHosts ? origin : desktopOrigin + '/?peer=host');
       await guest.page.goto(mobileHosts ? desktopOrigin + '/?peer=guest' : origin);
-      if (mobileHosts) await host.page.locator('#mobile-host').tap();
-      else await guest.page.locator('#mobile-guest').tap();
+      if (!mobileHosts) await guest.page.locator('#join-peer-btn').tap();
       await host.page.locator('#color-mode').selectOption('black');
       await host.page.locator('#create-btn').tap();
       await connect(host.page, guest.page);

@@ -30,4 +30,6 @@ export interface KamisadoDesktopApi {
     copyText(value: string): Promise<void>;
     joinGame(url: string): Promise<void>;
     openExternal(url: string): Promise<void>;
+    takeInvitation(): Promise<string | null>;
+    onInvitation(callback: (invitation: string) => void): () => void;
 }
