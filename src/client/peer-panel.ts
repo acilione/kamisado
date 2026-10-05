@@ -1,5 +1,5 @@
 import { P2pTransport, invitationUsesRelay, type P2pStatus } from './p2p-transport.js';
-import { parseRelaySettings } from './peer-network.js';
+import { parseRelaySettings, parseRelayImport } from './peer-network.js';
 import { AutomaticPeer, parseAutomaticInvitation } from './automatic-peer.js';
 import { normalizePeerInvitation, peerInvitationLink } from '../shared/peer-invitation.js';
 import { shareLink } from './share-link.js';
@@ -24,6 +24,7 @@ export class PeerPanel {
     private readonly notice = document.getElementById('peer-status')!;
     private readonly relayPanel = document.getElementById('peer-relay') as HTMLDetailsElement;
     private readonly useRelay = document.getElementById('peer-use-relay') as HTMLInputElement;
+    private readonly relayMode = document.getElementById('peer-relay-mode') as HTMLSelectElement;
     private readonly relayFields = document.getElementById('peer-relay-fields') as HTMLFieldSetElement;
     private readonly method = document.getElementById('peer-method') as HTMLSelectElement;
     private readonly quickOutgoing = document.getElementById('peer-quick-outgoing') as HTMLInputElement;
@@ -74,22 +75,61 @@ export class PeerPanel {
         this.connect.addEventListener('click', () => { void this.run(() => this.transport.acceptAnswer(this.incoming.value)); });
         this.quickCreate.addEventListener('click', () => { void this.run(() => this.createInvitation()); });
         this.quickJoin.addEventListener('click', () => { void this.run(async () => {
-            parseAutomaticInvitation(this.quickIncoming.value);
-            const relay = this.relaySettings();
-            const quick = this.startQuick();
-            await quick.join(this.quickIncoming.value, relay);
+            const legacyRelay = parseAutomaticInvitation(this.quickIncoming.value).relay;
+            const relayOnly = legacyRelay || (this.useRelay.checked && this.relayMode.value === 'always');
+            const relay = this.relaySettings(!relayOnly);
+            this.relayAttempt = relayOnly;
+            const quick = this.startQuick(legacyRelay ? undefined : relay);
+            await quick.join(this.quickIncoming.value, legacyRelay ? relay : undefined, relayOnly && !legacyRelay);
         }); });
         document.getElementById('peer-copy')!.addEventListener('click', () => { void this.copyCode(this.outgoing); });
         document.getElementById('peer-quick-copy')!.addEventListener('click', () => { void this.copyCode(this.quickOutgoing); });
         document.getElementById('peer-quick-share')!.addEventListener('click', () => { void this.shareInvitation(); });
         this.incoming.addEventListener('input', () => this.refresh());
         this.quickIncoming.addEventListener('input', () => this.refresh());
-        this.useRelay.addEventListener('change', () => this.refresh());
+        const relayChanged = () => {
+            if (this.role === 'host' && this.quick && !this.busy && this.status !== 'connected') {
+                this.stopQuick();
+                this.quickOutgoing.value = '';
+                this.status = 'idle';
+                this.notice.textContent = 'Relay settings changed. Create or share a new invitation to use them.';
+            }
+            this.refresh();
+        };
+        this.useRelay.addEventListener('change', () => {
+            if (!this.useRelay.checked) this.relayMode.value = 'auto';
+            relayChanged();
+        });
+        this.relayMode.addEventListener('change', () => {
+            if (this.relayMode.value === 'always') {
+                this.useRelay.checked = true;
+                this.relayPanel.open = true;
+            }
+            relayChanged();
+        });
+        document.getElementById('peer-relay-import-btn')!.addEventListener('click', () => {
+            const input = document.getElementById('peer-relay-import') as HTMLTextAreaElement;
+            try {
+                const relay = parseRelayImport(input.value);
+                (document.getElementById('peer-relay-urls') as HTMLTextAreaElement).value = (relay.urls as string[]).join('\n');
+                (document.getElementById('peer-relay-username') as HTMLInputElement).value = relay.username!;
+                (document.getElementById('peer-relay-password') as HTMLInputElement).value = relay.credential as string;
+                input.value = '';
+                relayChanged();
+                this.notice.textContent = 'TURN settings imported. You can now create or join an invitation.';
+            } catch (error) {
+                this.notice.textContent = error instanceof Error ? error.message : 'Could not import TURN settings.';
+            }
+        });
+        for (const id of ['peer-relay-urls', 'peer-relay-username', 'peer-relay-password']) {
+            document.getElementById(id)!.addEventListener('input', relayChanged);
+        }
         this.method.addEventListener('change', () => {
             this.stopQuick();
             this.transport.close();
             this.outgoing.value = this.incoming.value = this.quickOutgoing.value = '';
             this.notice.textContent = 'Ready to connect to a friend.';
+            this.useRelay.checked = this.method.value === 'quick';
             this.refresh();
         });
         window.addEventListener('pagehide', () => { this.stopQuick(); this.transport.close(); });
@@ -103,7 +143,7 @@ export class PeerPanel {
         this.refresh();
         if (parseAutomaticInvitation(code).relay) {
             this.relayPanel.open = true;
-            this.notice.textContent = 'This invitation uses a relay. Enter your TURN credentials, then press Join.';
+            this.notice.textContent = 'The host chose TURN only. This link selects it automatically. Import or enter TURN credentials on this device, then press Join.';
             return;
         }
         this.quickJoin.click();
@@ -120,33 +160,37 @@ export class PeerPanel {
     }
 
     private async createInvitation(): Promise<void> {
-        const relay = this.relaySettings();
-        const quick = this.startQuick();
-        const invitation = await quick.createInvite(relay);
+        const relayOnly = this.useRelay.checked && this.relayMode.value === 'always';
+        const relay = this.relaySettings(!relayOnly);
+        this.relayAttempt = relayOnly;
+        const quick = this.startQuick(relayOnly ? undefined : relay);
+        const invitation = await quick.createInvite(relayOnly ? relay : undefined);
         if (this.quick !== quick) return;
         this.quickOutgoing.value = peerInvitationLink(invitation);
         this.status = 'waiting-answer';
         this.quickExpiry = setTimeout(() => this.quickError('This invitation expired. Create a new invitation.'), 600000);
-        this.notice.textContent = 'Share the link with your friend. Opening it in Kamisado joins this game.';
+        this.notice.textContent = relayOnly
+            ? 'Share the link with your friend. Both players need TURN credentials; this invitation skips direct P2P.'
+            : 'Share the link with your friend. Opening it in Kamisado joins this game.';
     }
 
-    private relaySettings(): RTCIceServer | undefined {
-        const relay = this.useRelay.checked ? parseRelaySettings(
-            (document.getElementById('peer-relay-urls') as HTMLTextAreaElement).value,
-            (document.getElementById('peer-relay-username') as HTMLInputElement).value,
-            (document.getElementById('peer-relay-password') as HTMLInputElement).value,
-        ) : undefined;
+    private relaySettings(optional = false): RTCIceServer | undefined {
+        const values = ['peer-relay-urls', 'peer-relay-username', 'peer-relay-password'].map(id =>
+            (document.getElementById(id) as HTMLInputElement).value);
+        const relay = this.useRelay.checked && !(optional && values.every(value => !value.trim()))
+            ? parseRelaySettings(values[0], values[1], values[2]) : undefined;
         this.relayAttempt = !!relay;
         return relay;
     }
 
-    private startQuick(): AutomaticPeer {
+    private startQuick(fallbackRelay?: RTCIceServer): AutomaticPeer {
         this.stopQuick();
         this.transport.close();
         this.quickOutgoing.value = '';
         this.status = 'gathering';
         const quick = new AutomaticPeer(this.role, {
             server: window.__KAMISADO_SIGNALING__,
+            fallbackRelay,
             onConnection: (peer, channel) => {
                 if (this.quick !== quick) { channel.close(); return; }
                 this.transport.acceptChannel(peer, channel, this.room ?? undefined);
@@ -191,7 +235,7 @@ export class PeerPanel {
     updateGame(id: string | null, finished = false): void {
         if (this.role === 'host' && id !== this.room) {
             this.directFailed = false;
-            this.useRelay.checked = false;
+            this.useRelay.checked = this.method.value === 'quick';
         }
         if (this.room && id !== this.room && (!id || this.transport.gameId !== id)) {
             this.stopQuick();
@@ -222,13 +266,41 @@ export class PeerPanel {
                 try { relayInvitation = parseAutomaticInvitation(this.quickIncoming.value).relay; } catch { /* Incomplete input. */ }
             } else relayInvitation = invitationUsesRelay(this.incoming.value);
         }
-        const canUseRelay = this.directFailed || relayInvitation;
+        const canUseRelay = quick || this.directFailed || relayInvitation;
+        if (quick && relayInvitation) {
+            this.relayMode.value = 'always';
+            this.useRelay.checked = true;
+            this.relayPanel.open = true;
+        }
         if (!canUseRelay) this.useRelay.checked = false;
-        this.useRelay.disabled = this.busy || this.status === 'connected' || !canUseRelay;
+        this.useRelay.disabled = this.busy || this.status === 'connected' || !canUseRelay || (quick && relayInvitation);
+        this.relayMode.disabled = this.busy || this.status === 'connected' || relayInvitation;
+        document.getElementById('peer-connection-preference')!.classList.toggle('hidden', !quick);
         this.relayFields.disabled = this.busy || this.status === 'connected' || !this.useRelay.checked;
         document.getElementById('peer-relay-help')!.textContent = relayInvitation
-            ? 'Your friend is retrying with a relay. Enable TURN and enter your credentials before joining.'
-            : 'Available after a failed connection, or when your friend sends a relay invitation.';
+            ? 'The host chose TURN only. The invitation selects this automatically, even if you previously chose P2P first. Enter your TURN credentials below, then join.'
+            : quick && this.useRelay.checked && this.relayMode.value === 'always'
+                ? this.role === 'host'
+                    ? 'Use a TURN relay immediately. Create a new invitation after choosing this mode; your friend\'s app will select TURN only from the link. Both devices still need credentials.'
+                    : 'Use a TURN relay immediately with the same invitation. The host must have configured TURN before sharing it, even if they chose P2P first.'
+            : quick ? 'Try a direct connection first. If it fails, retry through TURN with the same invitation. Both devices need credentials, and the host must configure TURN before sharing the link.'
+                : 'Manual exchange: available after a failed connection or a relay invitation. Exchange fresh codes for the relay retry.';
+        let relayReady = false;
+        try {
+            const values = ['peer-relay-urls', 'peer-relay-username', 'peer-relay-password'].map(id =>
+                (document.getElementById(id) as HTMLInputElement).value);
+            parseRelaySettings(values[0], values[1], values[2]);
+            relayReady = true;
+        } catch { /* Show setup guidance without displaying credential contents. */ }
+        document.getElementById('peer-relay-readiness')!.textContent = !this.useRelay.checked
+            ? 'TURN is off on this device. Enable it in TURN relay settings to use a relay.'
+            : relayReady
+                ? 'TURN settings entered on this device. Your friend must also configure their device. Credentials are checked by the provider when connecting.'
+                : this.relayMode.value === 'always'
+                    ? 'Setup required: open TURN relay settings and import or enter credentials before connecting.'
+                    : 'P2P only until you add credentials in TURN relay settings. TURN fallback is not ready on this device.';
+        document.getElementById('peer-relay-label')!.textContent = quick
+            ? 'Enable TURN' : 'Use TURN for the next attempt';
         this.generate.disabled = this.busy || this.status === 'connected' || this.finished ||
             (this.role === 'host' ? !this.room : !this.incoming.value.trim());
         this.connect.disabled = this.busy || this.status !== 'waiting-answer' || !this.incoming.value.trim();

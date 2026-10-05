@@ -24,6 +24,7 @@ class FakeConnection extends EventEmitter {
     dataChannel = { bufferedAmount: 0 };
     open = false;
     closed = false;
+    blocked = false;
     label = 'kamisado-v2';
     serialization = 'raw';
     remote!: FakeConnection;
@@ -84,7 +85,7 @@ class FakePeer extends EventEmitter {
         FakePeer.prepare?.(guest, host);
         queueMicrotask(() => {
             destination.emit('connection', host);
-            if (host.closed) return;
+            if (host.closed || guest.blocked) return;
             host.open = guest.open = true;
             host.emit('open');
             guest.emit('open');
@@ -245,6 +246,100 @@ async function main(): Promise<void> {
     await relayGuest.join(relayCode, relay);
     relayHost.close();
     relayGuest.close();
+
+    // Configuring fallback must neither skip direct P2P nor allocate TURN for successful direct games.
+    const directHost = new AutomaticPeer('host', options({ fallbackRelay: relay }));
+    const directCode = await directHost.createInvite();
+    const standby = FakePeer.instances.at(-1)!;
+    assert.equal(standby.id, await automaticPeerId(directCode, true));
+    assert.notEqual(standby.id, await automaticPeerId(directCode));
+    assert.equal(standby.connections.length, 0);
+    const directGuest = new AutomaticPeer('guest', options({ fallbackRelay: relay }));
+    await directGuest.join(directCode);
+    assert.equal(FakePeer.instances.at(-1)!.options.config.iceTransportPolicy, 'all');
+    assert.equal(standby.connections.length, 0, 'Successful direct setup never contacts the standby TURN endpoint');
+    assert.equal(standby.disconnected, true, 'Unused fallback signaling must close after direct success');
+    directHost.close();
+    directGuest.close();
+
+    // An unreachable direct path triggers exactly one relay attempt with the original invitation.
+    FakePeer.prepare = connection => {
+        connection.blocked = FakePeer.instances.at(-1)!.options.config.iceTransportPolicy !== 'relay';
+    };
+    const statuses: string[] = [];
+    let fallbackConnections = 0;
+    const autoHost = new AutomaticPeer('host', options({ fallbackRelay: relay,
+        onConnection: () => fallbackConnections++ }));
+    const autoCode = await autoHost.createInvite();
+    assert.match(autoCode, /^K2\./);
+    const autoGuest = new AutomaticPeer('guest', options({ fallbackRelay: relay,
+        onStatus: message => statuses.push(message), onConnection: () => fallbackConnections++ }));
+    const beforeRetry = FakePeer.instances.length;
+    await autoGuest.join(autoCode);
+    assert.equal(fallbackConnections, 2);
+    assert.equal(FakePeer.instances.length - beforeRetry, 2, 'One direct attempt and one automatic retry');
+    assert.equal(FakePeer.instances.at(-2)!.destroyed, true, 'The failed direct peer is released');
+    assert.equal(FakePeer.instances.at(-1)!.options.config.iceTransportPolicy, 'relay');
+    assert(statuses.some(message => message.includes('automatically')));
+    autoHost.close();
+    autoGuest.close();
+
+    // A guest can choose TURN immediately for a normal invitation with relay standby.
+    FakePeer.prepare = undefined;
+    const forcedHost = new AutomaticPeer('host', options({ fallbackRelay: relay }));
+    const forcedCode = await forcedHost.createInvite();
+    const forcedGuest = new AutomaticPeer('guest', options({ fallbackRelay: relay }));
+    const beforeForced = FakePeer.instances.length;
+    await forcedGuest.join(forcedCode, undefined, true);
+    assert.equal(FakePeer.instances.length - beforeForced, 1, 'TURN directly must skip the direct attempt');
+    assert.equal(FakePeer.instances.at(-1)!.options.config.iceTransportPolicy, 'relay');
+    forcedGuest.close();
+    forcedHost.close();
+    const noCredentials = new AutomaticPeer('guest', options());
+    await assert.rejects(noCredentials.join(forcedCode, undefined, true), /TURN credentials/);
+    noCredentials.close();
+
+    FakePeer.prepare = connection => { connection.blocked = true; };
+    const failedRelayHost = new AutomaticPeer('host', options({ fallbackRelay: relay, connectionTimeoutMs: 50 }));
+    const failedRelayGuest = new AutomaticPeer('guest', options({ fallbackRelay: relay, connectionTimeoutMs: 50 }));
+    const failedCode = await failedRelayHost.createInvite();
+    const beforeFailure = FakePeer.instances.length;
+    await assert.rejects(failedRelayGuest.join(failedCode), /TURN fallback could not connect/);
+    assert.equal(FakePeer.instances.length - beforeFailure, 2, 'Failed credentials or network must not cause a retry loop');
+    assert(FakePeer.instances.slice(beforeFailure).every(peer => peer.destroyed));
+    failedRelayHost.close();
+    failedRelayGuest.close();
+
+    // A failed authentication must not be treated as a network failure or trigger TURN.
+    FakePeer.prepare = connection => { (connection.peerConnection as any).remoteDescription = description('03'); };
+    const authHost = new AutomaticPeer('host', options({ fallbackRelay: relay }));
+    const authCode = await authHost.createInvite();
+    const authStandby = FakePeer.instances.at(-1)!;
+    const authGuest = new AutomaticPeer('guest', options({ fallbackRelay: relay }));
+    const beforeAuth = FakePeer.instances.length;
+    await assert.rejects(authGuest.join(authCode), /match|authenticat|disconnected/);
+    assert.equal(FakePeer.instances.length - beforeAuth, 1);
+    assert.equal(authStandby.connections.length, 0);
+    authHost.close();
+    authGuest.close();
+
+    // Cancelling while relay signaling registers must cancel the whole operation.
+    FakePeer.prepare = connection => { connection.blocked = true; FakePeer.neverRegister = true; };
+    const cancelHost = new AutomaticPeer('host', options({ fallbackRelay: relay, connectionTimeoutMs: 50 }));
+    const cancelCode = await cancelHost.createInvite();
+    const cancelGuest = new AutomaticPeer('guest', options({ fallbackRelay: relay, connectionTimeoutMs: 50 }));
+    const beforeCancel = FakePeer.instances.length;
+    const cancelling = cancelGuest.join(cancelCode);
+    const cancelledResult = assert.rejects(cancelling, /cancelled/);
+    const deadline = Date.now() + 500;
+    while (FakePeer.instances.length < beforeCancel + 2 && Date.now() < deadline) await pause(5);
+    assert.equal(FakePeer.instances.length, beforeCancel + 2);
+    cancelGuest.close();
+    await cancelledResult;
+    assert(FakePeer.instances.slice(beforeCancel).every(peer => peer.destroyed));
+    cancelHost.close();
+    FakePeer.neverRegister = false;
+    FakePeer.prepare = undefined;
 
     FakePeer.neverRegister = true;
     const unavailable = new AutomaticPeer('host', options({ registrationTimeoutMs: 50 }));

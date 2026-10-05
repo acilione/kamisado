@@ -1,5 +1,25 @@
 import assert from 'node:assert/strict';
-import { parseRelaySettings, candidateCounts, selectedRoute } from '../../src/client/peer-network.js';
+import { parseRelaySettings, parseRelayImport, candidateCounts, selectedRoute } from '../../src/client/peer-network.js';
+
+const imported = { urls: 'turn:relay.example.com:3478', username: 'player', credential: 'secret' };
+const iceServers = [{ urls: 'stun:stun.example.com' }, imported,
+    { ...imported, urls: ['turns:relay.example.com:443?transport=tcp', imported.urls] }];
+for (const data of [iceServers, { iceServers }]) {
+    assert.deepEqual(parseRelayImport(JSON.stringify(data)), {
+        urls: ['turns:relay.example.com:443?transport=tcp', imported.urls], username: 'player', credential: 'secret',
+    });
+}
+const many = Array.from({ length: 6 }, (_, i) => ({ ...imported, urls: `turn:relay.example.com:${3478 + i}` }));
+many.push({ ...imported, urls: 'turns:relay.example.com:443?transport=tcp' });
+assert.equal((parseRelayImport(JSON.stringify(many)).urls as string[]).length, 4);
+assert.equal((parseRelayImport(JSON.stringify(many)).urls as string[])[0], many.at(-1)!.urls);
+for (const data of [null, {}, [null], [{ urls: 42 }], [{ urls: 'stun:example.com' }],
+    [{ ...imported, urls: 'https://example.com' }], [{ ...imported, credentialType: 'oauth' }],
+    [imported, { ...imported, credential: 'other' }], [{ ...imported, credential: {} }]]) {
+    assert.throws(() => parseRelayImport(JSON.stringify(data)));
+}
+assert.throws(() => parseRelayImport('window.alert("not JSON")'), /valid ICE servers JSON/);
+assert.throws(() => parseRelayImport(' '.repeat(65537)), /too large/);
 
 assert.deepEqual(parseRelaySettings('turns:relay.example.com:443?transport=tcp\nturn:relay.example.com:3478?transport=udp', ' player ', ' token '), {
     urls: ['turns:relay.example.com:443?transport=tcp', 'turn:relay.example.com:3478?transport=udp'],

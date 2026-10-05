@@ -20,6 +20,16 @@
         <details id="peer-panel" class="hidden" open>
             <summary id="peer-title">Internet P2P connection</summary>
             <p id="peer-instructions"></p>
+            <div id="peer-connection-preference">
+                <label id="peer-relay-mode-label" for="peer-relay-mode">How to connect
+                    <select id="peer-relay-mode" aria-describedby="peer-relay-help peer-relay-readiness">
+                        <option value="auto">P2P first, TURN if needed</option>
+                        <option value="always">TURN only (skip P2P)</option>
+                    </select>
+                </label>
+                <p id="peer-relay-help" class="option-help"></p>
+                <p id="peer-relay-readiness" class="option-help" role="status"></p>
+            </div>
             <div id="peer-quick">
                 <div id="peer-quick-host">
                     <button id="peer-quick-create" type="button">Create invitation</button>
@@ -59,12 +69,19 @@
             </div>
             <p id="peer-status" role="status" aria-live="polite"></p>
             <details id="peer-relay">
-                <summary>Relay fallback</summary>
-                <p class="option-help">Try direct P2P first. If it fails, a TURN service can forward encrypted moves while the game stays on the host's device. No relay service is included.</p>
-                <label><input id="peer-use-relay" type="checkbox" disabled> Use TURN for the next attempt</label>
-                <p id="peer-relay-help" class="option-help">Available after a failed connection, or when your friend sends a relay invitation.</p>
+                <summary>TURN relay settings</summary>
+                <p class="option-help">A TURN service can forward encrypted moves while the game stays on the host's device. No relay service is included.</p>
+                <label><input id="peer-use-relay" type="checkbox" checked> <span id="peer-relay-label">Enable TURN</span></label>
+                <p class="option-help">Both players must enter or import TURN credentials on their own device. Invitation links carry the connection choice, but do not include these credentials.</p>
                 <fieldset id="peer-relay-fields" disabled>
                     <legend>Credentials from your TURN provider</legend>
+                    <details>
+                        <summary>Import provider settings</summary>
+                        <label for="peer-relay-import">Paste ICE servers JSON</label>
+                        <textarea id="peer-relay-import" rows="3" maxlength="65536" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder='[{"urls":"turns:relay.example.com:443?transport=tcp","username":"…","credential":"…"}]'></textarea>
+                        <button id="peer-relay-import-btn" type="button">Import TURN settings</button>
+                        <p class="option-help">Paste the provider's ICE-server JSON array to fill all three fields at once. STUN entries are ignored. The pasted text is cleared after import.</p>
+                    </details>
                     <label for="peer-relay-urls">Relay addresses (one per line)</label>
                     <textarea id="peer-relay-urls" rows="2" maxlength="2048" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="turns:relay.example.com:443?transport=tcp"></textarea>
                     <label for="peer-relay-username">Username</label>
@@ -72,9 +89,9 @@
                     <label for="peer-relay-password">Password</label>
                     <input id="peer-relay-password" type="password" maxlength="2048" autocomplete="off">
                 </fieldset>
-                <p class="option-help">Use the provider's TLS/TCP address when available. Enter session credentials, never a provider account password or API key. They are kept only for this open session and are not included in invitations. Both players configure a relay, then the host creates a new invitation. Uncheck TURN to try direct P2P again.</p>
+                <p class="option-help">Use the provider's TLS/TCP address when available. Enter session credentials, never a provider account password or API key. They stay in this screen until you leave or close it and are not included in invitations. Quick connect can retry automatically or use TURN directly. Manual exchange requires fresh codes.</p>
             </details>
-            <p id="peer-code-help" class="option-help">Keep both apps open while connecting and playing. Direct P2P uses a public STUN service to discover addresses. TURN is used only when you select the fallback after a failed attempt.</p>
+            <p id="peer-code-help" class="option-help">Keep both apps open while connecting and playing. Both connection choices use kamisado://join/ links. Changing the host's connection settings requires a new invitation; an automatic TURN retry keeps the same link.</p>
         </details>
         <!-- Menu Screen -->
         <div id="menu-screen">

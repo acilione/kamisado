@@ -17,7 +17,7 @@ The app includes its runtime and runs without installation. You do not need Node
 - **LAN:** choose **Host a LAN game**, create a game, and share the link or QR code. Your friend joins in a browser on the same network.
 - **Internet P2P:** choose the settings, create a game, and press **Share link**. Your friend opens the app link to join automatically. Both players need an updated app.
 
-PeerJS Cloud exchanges setup messages automatically; no account or self-hosted service is needed. Gameplay stays on the host's device, with direct WebRTC first. Manual code exchange remains available under **Advanced** if the public signaling service is unavailable. Networks that block direct connections can use an explicit TURN retry with credentials from a relay provider; no TURN service is bundled. The optional ngrok mode is separate.
+PeerJS Cloud exchanges setup messages automatically; no account or self-hosted service is needed for direct play. Gameplay stays on the host's device, with direct WebRTC first. Configure temporary TURN credentials on both devices before connecting to enable automatic relay fallback with the same invitation. No TURN service is bundled. Manual code exchange remains available under **Advanced** and needs fresh codes for a relay retry. The optional ngrok mode is separate.
 
 Keep the host app open during play. Closing it or ending the session loses unfinished games.
 
