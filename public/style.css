@@ -254,6 +254,14 @@ select:focus-visible {
 }
 
 /* Game Board */
+#game-screen.waiting-for-opponent #board-container,
+#game-screen.waiting-for-opponent #board-options,
+#game-screen.waiting-for-opponent #camera-controls,
+#game-screen.waiting-for-opponent #view-notice,
+#game-screen.waiting-for-opponent #timer-container {
+    display: none;
+}
+
 #board-container {
     display: flex;
     justify-content: center;
@@ -613,7 +621,7 @@ select:focus-visible {
 #peer-status { color: #c4d7ff; min-height: 1.5em; }
 #peer-code-help { margin: 12px 0 0; }
 #peer-quick input { width: 100%; box-sizing: border-box; padding: 10px; font: inherit; }
-#peer-quick input, #peer-relay-fields input, #peer-method {
+#peer-quick input, #peer-relay-fields input, #peer-method, #peer-relay-mode {
     border: 1px solid #687080;
     border-radius: 6px;
     background: #15171c;

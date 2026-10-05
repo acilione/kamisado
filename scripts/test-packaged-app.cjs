@@ -174,14 +174,7 @@ async function main() {
     assert.equal(await host.locator('#share-qr').evaluate(canvas => canvas.width > 0 && canvas.height > 0), true);
 
     await shell.screenshot({ path: path.join(screenshots, 'packaged-invitation.png') });
-    console.log('Packaged smoke: render board modes and symbols');
-    await host.locator('#game-board-view').selectOption('realistic-2d');
-    await host.locator('#game-symbol-mode').check();
-    assert.equal(await host.locator('#board .square-symbol').count(), 128, 'realistic symbol board must load its two markings per square');
-    await host.locator('#game-board-view').selectOption('realistic-3d');
-    await host.locator('#board-3d canvas:visible, #board:visible .realistic-tower').first().waitFor({ state: 'visible' });
-    await shell.screenshot({ path: path.join(screenshots, 'packaged-board.png') });
-    await host.locator('#game-board-view').selectOption('realistic-2d');
+    assert.equal(await host.locator('#board-container').isVisible(), false, 'the lobby must show invitations without the board');
 
     console.log('Packaged smoke: reconfigure invitation without reloading the room');
     const gameDocument = shell.frames().find(frame => frame.url().startsWith(state.localOrigin + '/'));
@@ -217,6 +210,14 @@ async function main() {
     await guest.locator('#board .cell').first().waitFor({ state: 'visible' });
     await host.locator('#turn-indicator').filter({ hasText: /Turn: BLACK/i }).waitFor({ state: 'visible' });
     assert.equal(await guest.locator('#board .cell').count(), 64, 'guest must load the bundled game from the invitation');
+    console.log('Packaged smoke: render board modes and symbols');
+    await host.locator('#game-board-view').selectOption('realistic-2d');
+    await host.locator('#game-symbol-mode').check();
+    assert.equal(await host.locator('#board .square-symbol').count(), 128, 'realistic symbol board must load its two markings per square');
+    await host.locator('#game-board-view').selectOption('realistic-3d');
+    await host.locator('#board-3d canvas:visible, #board:visible .realistic-tower').first().waitFor({ state: 'visible' });
+    await shell.screenshot({ path: path.join(screenshots, 'packaged-board.png') });
+    await host.locator('#game-board-view').selectOption('realistic-2d');
     await host.locator('.cell[data-r="0"][data-c="0"]').click();
     await host.locator('.cell[data-r="1"][data-c="0"]').click();
     await guest.locator('.cell[data-r="1"][data-c="0"] .piece.black').waitFor({ state: 'visible' });

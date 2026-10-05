@@ -22,8 +22,10 @@ export interface AutomaticPeerOptions {
     onConnection(peer: RTCPeerConnection, channel: PeerDataChannel): void;
     onStatus(message: string): void;
     onError(error: Error): void;
-    /** Enables an explicit relay retry without allowing a failed caller to close the host lobby. */
+    /** Reports a failed caller without closing the host's invitation. */
     onAttemptFailed?(error: Error): void;
+    /** Local, temporary credentials. Used only after direct setup fails. */
+    fallbackRelay?: RTCIceServer;
     /** Tests can use a local PeerServer without changing the production signaling service. */
     Peer?: typeof Peer;
     server?: Pick<PeerOptions, 'host' | 'port' | 'path' | 'secure' | 'key'>;
@@ -56,11 +58,15 @@ export function parseAutomaticInvitation(value: string): { secret: Uint8Array<Ar
 }
 
 /** Only a hash is published to the broker. The invitation secret stays on the two devices. */
-export async function automaticPeerId(invitation: string): Promise<string> {
+export async function automaticPeerId(invitation: string, fallback = false): Promise<string> {
     const { secret } = parseAutomaticInvitation(invitation);
-    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', secret));
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', fallback
+        ? encoder.encode('kamisado-relay:' + base64url(secret)) : secret));
     return 'kamisado-v2-' + Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
 }
+
+/** Only transport failures before authentication are eligible for an automatic retry. */
+class ConnectionAttemptError extends Error {}
 
 function timeout(value: number | undefined, maximum: number): number {
     return Math.min(maximum, Math.max(50, value ?? maximum));
@@ -105,7 +111,7 @@ class AuthenticatedChannel implements PeerDataChannel {
         private readonly ready: (channel: AuthenticatedChannel) => void,
         private readonly failed: (channel: AuthenticatedChannel, error: Error) => void,
     ) {
-        this.timer = setTimeout(() => this.fail(new Error('A direct connection could not be established. Try the relay fallback or a shared network.')),
+        this.timer = setTimeout(() => this.fail(new ConnectionAttemptError('A direct connection could not be established. Add TURN credentials on both devices to enable automatic fallback, or try another network.')),
             timeout(options.connectionTimeoutMs, 30000));
         const opened = () => {
             if (this.closed || this.opened) return;
@@ -117,10 +123,14 @@ class AuthenticatedChannel implements PeerDataChannel {
         };
         connection.on('open', opened);
         connection.on('data', data => { void this.receive(data).catch(error => this.fail(error)); });
-        connection.on('error', () => this.fail(new Error('The peer connection failed. Try a new invitation.')));
+        connection.on('error', () => this.fail(this.opened
+            ? new Error('The peer connection failed. Try a new invitation.')
+            : new ConnectionAttemptError('The direct connection failed. Check your network or configure TURN fallback.')));
         connection.on('close', () => {
             if (this.closed) return;
-            if (!this.authenticated) this.fail(new Error('Your friend disconnected before the connection was ready.'));
+            if (!this.authenticated) this.fail(this.opened
+                ? new Error('Your friend disconnected before the connection was ready.')
+                : new ConnectionAttemptError('Your friend disconnected before the connection was ready.'));
             else this.close();
         });
         if (connection.open) queueMicrotask(opened);
@@ -234,7 +244,7 @@ class AuthenticatedChannel implements PeerDataChannel {
 /** PeerJS Cloud exchanges connection details; authenticated game traffic stays on WebRTC. */
 export class AutomaticPeer {
     private generation = 0;
-    private peer: Peer | null = null;
+    private peers = new Set<Peer>();
     private candidates = new Set<AuthenticatedChannel>();
     private active: AuthenticatedChannel | null = null;
     private rejectRegistration: ((error: Error) => void) | null = null;
@@ -252,6 +262,11 @@ export class AutomaticPeer {
         const invitation = generateAutomaticInvitation(!!relay);
         try {
             await this.register(invitation, relay, generation);
+            // Register a second signaling address for this same invitation. PeerJS creates
+            // no RTC connection (and contacts no TURN server) until a caller uses it.
+            if (!relay && this.options.fallbackRelay) {
+                await this.register(invitation, this.options.fallbackRelay, generation, true);
+            }
             this.options.onStatus('Send this invitation to your friend. Keep this window open while they join.');
             this.invitationTimer = setTimeout(() => this.fail(new Error('This invitation expired. Create a new invitation.'), generation), 600000);
             return invitation;
@@ -261,30 +276,60 @@ export class AutomaticPeer {
         }
     }
 
-    async join(invitation: string, relay?: RTCIceServer): Promise<void> {
+    async join(invitation: string, relay?: RTCIceServer, skipDirect = false): Promise<void> {
         if (this.role !== 'guest') throw new Error('Only the joining player can use an invitation.');
         const parsed = parseAutomaticInvitation(invitation);
         if (parsed.relay !== !!relay) throw new Error(parsed.relay
-            ? 'Your friend is using the relay fallback. Enter your relay credentials before joining.'
+            ? 'Your friend is using TURN directly. Enter your relay credentials before joining.'
             : 'This invitation uses a direct connection. Leave relay fallback disabled.');
+        if (skipDirect && !this.options.fallbackRelay) throw new Error('Enter TURN credentials to skip the direct connection.');
         this.close();
         const generation = this.generation;
         try {
-            const key = await this.register(invitation, relay, generation);
-            const destination = await automaticPeerId(invitation);
-            this.ensureCurrent(generation);
-            await new Promise<void>((resolve, reject) => {
-                this.finishJoin = resolve;
-                this.rejectJoin = reject;
-                // The pinned PeerJS version names its unencoded serializer "raw".
-                const connection = this.peer!.connect(destination, { label: 'kamisado-v2', serialization: 'raw', reliable: true });
-                this.watch(connection, key, generation);
-                this.options.onStatus('Connecting to your friend…');
-            });
+            if (skipDirect) {
+                await this.connect(invitation, this.options.fallbackRelay, generation, true);
+                return;
+            }
+            try {
+                await this.connect(invitation, relay, generation);
+            } catch (error) {
+                if (!(error instanceof ConnectionAttemptError) || relay || !this.options.fallbackRelay) throw error;
+                this.ensureCurrent(generation);
+                this.destroyPeers();
+                this.options.onStatus('Direct connection unavailable. Connecting through TURN automatically…');
+                try {
+                    await this.connect(invitation, this.options.fallbackRelay, generation, true);
+                } catch (relayError) {
+                    if (relayError instanceof ConnectionAttemptError) {
+                        throw new Error('TURN fallback could not connect. Check the relay credentials and their expiry on both devices, then retry this invitation.');
+                    }
+                    throw relayError;
+                }
+            }
         } catch (error) {
             this.fail(error, generation);
             throw error;
         }
+    }
+
+    private async connect(invitation: string, relay: RTCIceServer | undefined, generation: number, fallback = false): Promise<void> {
+        const { peer, key } = await this.register(invitation, relay, generation, fallback);
+        const destination = await automaticPeerId(invitation, fallback);
+        this.ensureCurrent(generation);
+        await new Promise<void>((resolve, reject) => {
+            this.finishJoin = resolve;
+            this.rejectJoin = reject;
+            const connection = peer.connect(destination, { label: 'kamisado-v2', serialization: 'raw', reliable: true });
+            this.watch(connection, key, generation, !!relay);
+            this.options.onStatus(relay ? 'Connecting through TURN…' : 'Trying a direct connection…');
+        });
+    }
+
+    private destroyPeers(): void {
+        // Remove first: destroy() can synchronously emit disconnected/close events.
+        const peers = [...this.peers];
+        this.peers.clear();
+        for (const peer of peers) peer.destroy();
     }
 
     close(): void {
@@ -299,22 +344,20 @@ export class AutomaticPeer {
         this.candidates.clear();
         this.active?.close();
         this.active = null;
-        const peer = this.peer;
-        this.peer = null;
-        peer?.destroy();
+        this.destroyPeers();
     }
 
     private ensureCurrent(generation: number): void {
         if (generation !== this.generation) throw new Error('Connection setup was cancelled.');
     }
 
-    private async register(invitation: string, relay: RTCIceServer | undefined, generation: number): Promise<CryptoKey> {
-        this.options.onStatus('Opening an invitation through PeerJS Cloud…');
+    private async register(invitation: string, relay: RTCIceServer | undefined, generation: number, fallback = false): Promise<{ peer: Peer; key: CryptoKey }> {
+        if (!fallback) this.options.onStatus('Opening an invitation through PeerJS Cloud…');
         const { secret } = parseAutomaticInvitation(invitation);
         const [Constructor, key, id] = await Promise.all([
             this.options.Peer ?? import('peerjs').then(module => module.Peer),
             crypto.subtle.importKey('raw', secret, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']),
-            this.role === 'host' ? automaticPeerId(invitation) : Promise.resolve(undefined),
+            this.role === 'host' ? automaticPeerId(invitation, fallback) : Promise.resolve(undefined),
         ]);
         this.ensureCurrent(generation);
         const config: PeerOptions = {
@@ -328,7 +371,8 @@ export class AutomaticPeer {
                 bundlePolicy: 'max-bundle',
             },
         };
-        const peer = this.peer = id ? new Constructor(id, config) : new Constructor(config);
+        const peer = id ? new Constructor(id, config) : new Constructor(config);
+        this.peers.add(peer);
         const registered = new Promise<void>((resolve, reject) => {
             this.rejectRegistration = reject;
             this.registrationTimer = setTimeout(() => this.fail(new Error('The invitation service is unavailable. Try again or use manual connection codes.'), generation),
@@ -342,16 +386,17 @@ export class AutomaticPeer {
             });
         });
         peer.on('connection', connection => {
-            if (generation !== this.generation || this.role !== 'host' || this.active || this.candidates.size >= 2 ||
+            if (generation !== this.generation || !this.peers.has(peer) || this.role !== 'host' || this.active || this.candidates.size >= 2 ||
                 connection.label !== 'kamisado-v2' || connection.serialization !== 'raw') {
                 connection.close();
                 return;
             }
-            this.watch(connection, key, generation);
+            if (fallback) this.options.onStatus('Your friend is retrying through TURN automatically…');
+            this.watch(connection, key, generation, !!relay);
         });
         peer.on('call', call => call.close());
         peer.on('error', error => {
-            if (this.active) return;
+            if (generation !== this.generation || !this.peers.has(peer) || this.active) return;
             if (this.role === 'host' && (error.type === 'webrtc' || error.type === 'peer-unavailable')) {
                 // PeerJS also reports an individual caller's negotiation errors on the broker.
                 // Keep the registered invitation available for the intended friend.
@@ -359,21 +404,29 @@ export class AutomaticPeer {
                 this.options.onAttemptFailed?.(new Error('A connection attempt failed. You can try the relay fallback.'));
                 return;
             }
+            if (this.role === 'guest' && error.type === 'webrtc' && this.rejectJoin) {
+                this.rejectJoin(new ConnectionAttemptError('The direct connection failed.'));
+                this.rejectJoin = this.finishJoin = null;
+                return;
+            }
             const message = error.type === 'peer-unavailable'
-                ? 'This invitation is no longer available. Ask your friend to create a new one.'
+                ? fallback ? 'Automatic TURN fallback is unavailable. The host must configure relay credentials before creating the invitation.'
+                    : 'This invitation is no longer available. Ask your friend to create a new one.'
                 : 'The invitation service could not connect. Try again or use manual connection codes.';
             this.fail(new Error(message), generation);
         });
         peer.on('disconnected', () => {
-            if (!this.active) this.fail(new Error('The invitation service disconnected. Create a new invitation or use manual connection codes.'), generation);
+            if (this.peers.has(peer) && !this.active) this.fail(new Error('The invitation service disconnected. Create a new invitation or use manual connection codes.'), generation);
         });
         await registered;
         this.ensureCurrent(generation);
-        return key;
+        return { peer, key };
     }
 
-    private watch(connection: DataConnection, key: CryptoKey, generation: number): void {
-        const channel = new AuthenticatedChannel(connection, this.role, key, this.options, ready => {
+    private watch(connection: DataConnection, key: CryptoKey, generation: number, relay = false): void {
+        const channel = new AuthenticatedChannel(connection, this.role, key, {
+            ...this.options, connectionTimeoutMs: this.options.connectionTimeoutMs ?? (relay ? 30000 : 12000),
+        }, ready => {
             if (generation !== this.generation || this.active) { ready.close(); return; }
             this.active = ready;
             this.candidates.delete(ready);
@@ -381,14 +434,17 @@ export class AutomaticPeer {
             this.candidates.clear();
             if (this.invitationTimer) clearTimeout(this.invitationTimer);
             this.invitationTimer = null;
-            this.peer!.disconnect();
+            for (const peer of this.peers) peer.disconnect();
             this.options.onConnection(connection.peerConnection, ready);
             this.finishJoin?.();
             this.finishJoin = this.rejectJoin = null;
         }, (failed, error) => {
             this.candidates.delete(failed);
             if (generation !== this.generation || this.active) return;
-            if (this.role === 'guest') this.fail(error, generation);
+            if (this.role === 'guest') {
+                this.rejectJoin?.(error);
+                this.rejectJoin = this.finishJoin = null;
+            }
             // An unauthenticated caller must never be able to destroy the host's invitation.
             else {
                 this.options.onStatus('Still waiting for your friend. An unsuccessful connection attempt was closed.');

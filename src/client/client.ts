@@ -608,7 +608,13 @@ let chessClockInterval: ReturnType<typeof setInterval> | null = null;
 
 function renderBoard(): void {
     if (!gameState) return;
+    const waitingForOpponent = gameState.roundState === 'waiting_start';
+    screens.game.classList.toggle('waiting-for-opponent', waitingForOpponent);
     boardEl.innerHTML = '';
+    if (waitingForOpponent) {
+        dispose3DBoard();
+        return;
+    }
 
     const canInteract = connectionReady && !hostStopped && !isSpectator &&
         !gameState.finished &&
@@ -899,7 +905,7 @@ function updateUI(): void {
 function updateTimersContainer(): void {
     if (!gameState) return;
 
-    if (gameState.timer && gameState.timer.enabled) {
+    if (gameState.timer && gameState.timer.enabled && gameState.roundState !== 'waiting_start') {
         if (!chessClockInterval) {
             chessClockInterval = setInterval(() => updateClocks(), 100);
         }

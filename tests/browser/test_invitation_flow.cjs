@@ -85,6 +85,8 @@ async function run() {
     const gamePath = new URL(page.url()).pathname;
     assert.match(gamePath, /^\/game\/[a-f0-9]{12}$/);
     assert.equal(await page.locator('#invite-panel').evaluate(panel => panel.open), true, 'new lobbies must show the invitation immediately');
+    assert.equal(await page.locator('#board-container').isVisible(), false, 'the board stays hidden until an opponent joins');
+    assert.equal(await page.locator('#board-options').isVisible(), false);
     await assertInvitation(page, 'http://192.168.50.3:32145' + gamePath);
     await page.locator('#share-btn').click();
     await page.waitForFunction(url => window.__copied === url, 'http://192.168.50.3:32145' + gamePath);
@@ -126,6 +128,7 @@ async function run() {
     await guestPage.locator('#game-screen').waitFor({ state: 'visible' });
     assert.equal(new URL(guestPage.url()).origin, localOrigin, 'A pasted invitation must navigate to the advertised host');
     await page.waitForFunction(() => document.getElementById('turn-indicator').textContent.startsWith('Turn:'));
+    assert.equal(await page.locator('#board-container').isVisible(), true, 'the board appears when play starts');
     assert.equal(await page.locator('#invite-panel').evaluate(panel => panel.open), false, 'invitation must fold away when the opponent joins');
     await page.locator('#invite-title').click();
     await assertInvitation(page, invitation);

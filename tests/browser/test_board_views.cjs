@@ -436,6 +436,20 @@ async function run() {
     await page.locator('#game-board-view').selectOption('realistic-2d');
     await assertFitsViewport(page);
     await page.screenshot({ path: path.join(screenshots, 'realistic-2d-narrow-mobile.png'), fullPage: true });
+    for (const view of ['realistic-2d', 'realistic-3d']) {
+      await page.locator('#game-board-view').selectOption(view);
+      await page.evaluate(state => window.__boardFixture.dispatch('gameStateUpdate', {
+        ...state, roundState: 'waiting_start',
+      }), initialState);
+      for (const selector of ['#board-container', '#board-options', '#camera-controls']) {
+        assert.equal(await page.locator(selector).isVisible(), false, view + ': the lobby hides board controls');
+      }
+      assert.equal(await page.locator('#board-3d canvas').count(), 0, 'the lobby must not keep a WebGL renderer alive');
+      await page.evaluate(state => window.__boardFixture.dispatch('gameStateUpdate', state), initialState);
+      assert.equal(await page.locator('#board-container').isVisible(), true);
+      if (view === 'realistic-3d') await assertWebGLCanvas(page, 'realistic-3d-after-lobby.png');
+      else await assert2DBoard(page, true);
+    }
     await context.close();
 
     const fallback = await browser.newContext();

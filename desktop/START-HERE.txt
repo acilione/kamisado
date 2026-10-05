@@ -87,11 +87,17 @@ Over the Internet (P2P)
   creates and sends back a reply code. The host pastes the reply and presses
   "Connect to friend". Direct connections also work with older app versions.
 
-  If the direct attempt fails, "Relay fallback" allows a retry using a TURN
-  provider's addresses, username, and session password. No relay service is
-  included. Both players configure it, then use a fresh invitation. TURN
-  forwards encrypted traffic; the game stays on the host's device.
-  Credentials are not saved or sent in invitations.
+  For automatic fallback, enter temporary TURN addresses, username, and
+  password under "TURN relay settings" on both devices before creating or joining
+  an invitation. Quick connect first tries direct P2P, then automatically
+  retries through TURN using the same invitation. Leave all fields empty
+  for direct play only. No relay service is included. Credentials remain
+  on the current screen; they are not saved or sent in invitations.
+  Manual code exchange still needs fresh codes for a relay retry.
+
+  To skip direct P2P, select "TURN only (skip P2P)" before sharing or joining.
+  Both players still need relay credentials. "Import provider settings"
+  accepts the provider's ICE servers JSON and fills all three fields at once.
 
 Board controls
 
@@ -129,7 +135,7 @@ LAN invitation will not open
 
 P2P connection fails
   Update both apps, use the complete invitation, and keep the host app open.
-  After an expired code or failed attempt, create a fresh invitation. If
+  After an expired code, create a fresh invitation. If
   Quick connect cannot reach its signaling service, try manual exchange.
   In manual mode, use the matching reply for the latest invitation.
 
@@ -139,7 +145,7 @@ P2P connection fails
   the WebRTC connection from Windows.
 
   If the direct connection times out, try another network or configure
-  Relay fallback. Manual exchange alone cannot bypass a router or mobile
+  TURN relay settings. Manual exchange alone cannot bypass a router or mobile
   carrier that blocks direct connections. An existing private VPN can also
   let both computers use a reachable LAN invitation.
 
