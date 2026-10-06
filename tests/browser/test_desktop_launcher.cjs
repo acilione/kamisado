@@ -45,6 +45,8 @@ async function run() {
       window.__copied = [];
       window.__noNetwork = false;
       window.kamisadoDesktop = {
+        onInvitation(callback) { window.__openInvitation = callback; },
+        async takeInvitation() { return null; },
         async getState() { return structuredClone(window.__state); },
         async startHosting(request) {
           window.__starts.push(request);
@@ -77,10 +79,13 @@ async function run() {
     }, { origin });
     await page.goto(origin + '/desktop/index.html');
     await page.waitForFunction(() => !document.getElementById('lan-button').disabled);
+    await page.locator('#game-panel').waitFor();
+    assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?hosting=tunnel');
+    await page.locator('#hosting-settings').click();
     assert.match(await page.locator('#lan-button').textContent(), /Wi-Fi or Ethernet/);
     assert.equal(await page.locator('#internet-options').getAttribute('open'), null);
     assert.equal(await page.locator('#token-setup').isVisible(), false);
-    assert.equal(await page.locator('#game-frame').getAttribute('src'), null);
+    assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?hosting=tunnel');
 
     await page.locator('#join-invitation').fill('not an invitation');
     await page.locator('#join-invitation').press('Enter');
@@ -91,8 +96,8 @@ async function run() {
     await page.locator('#join-button').click();
     await page.waitForFunction(() => window.__joins.length === 1);
     assert.deepEqual(await page.evaluate(() => window.__joins), [invitation]);
-    assert.equal(await page.locator('#game-frame').getAttribute('src'), null, 'Joining must use the browser, not the privileged launcher frame');
-    assert.deepEqual(await page.evaluate(() => window.__starts), [], 'Joining must not start a server');
+    assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?hosting=tunnel', 'LAN joins preserve the local setup frame');
+    assert.equal(await page.evaluate(() => window.__starts.length), 1, 'LAN joins must not start another server');
 
     await page.locator('#lan-button').click();
     await page.locator('#game-panel').waitFor();
@@ -163,7 +168,7 @@ async function run() {
       assert.deepEqual(await page.evaluate(() => window.__starts.at(-1)), { mode: 'direct', localOnly: true, peerMode: mode });
       assert.equal(await page.locator('#connection-label').textContent(), 'Internet P2P');
       await page.locator('#hosting-settings').click();
-      assert.equal(await page.locator('#setup-panel').isVisible(), false);
+      assert.equal(await page.locator('#setup-panel').isVisible(), true);
       assert.equal(await page.locator('#stop-hosting').textContent(), 'End session');
       assert.match(await page.locator('#status-description').textContent(), /no central game server/);
       await page.locator('#stop-hosting').click();
@@ -174,7 +179,7 @@ async function run() {
     await page.locator('#game-panel').waitFor();
     assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?opponent=computer');
     await page.locator('#hosting-settings').click();
-    assert.equal(await page.locator('#setup-panel').isVisible(), false);
+    assert.equal(await page.locator('#setup-panel').isVisible(), true);
     assert.equal(await page.locator('#stop-hosting').textContent(), 'End session');
     await page.locator('#stop-hosting').click();
     await page.locator('#confirm-stop').click();
@@ -184,6 +189,20 @@ async function run() {
     assert.equal(await page.locator('.quick-actions').isVisible(), false);
     await page.locator('#token-back').click();
     assert.equal(await page.locator('#lan-button').isVisible(), true);
+    const appCode = 'K2.' + 'A'.repeat(22);
+    await page.evaluate(code => window.__openInvitation(code), appCode);
+    await page.waitForFunction(code => document.getElementById('game-frame').src.endsWith('/?peer=guest#' + code), appCode);
+    const startsBeforeBadLink = await page.evaluate(() => window.__starts.length);
+    await page.evaluate(() => window.__openInvitation('K2.invalid?server=https://untrusted.example'));
+    await page.locator('#error-panel').filter({ hasText: 'not a valid Kamisado invitation' }).waitFor({ state: 'attached' });
+    assert.equal(await page.evaluate(() => window.__starts.length), startsBeforeBadLink, 'Invalid native links cannot restart or redirect the app');
+    await page.evaluate(origin => window.dispatchEvent(new MessageEvent('message', {
+      source: document.getElementById('game-frame').contentWindow, origin,
+      data: { type: 'kamisado:session', active: true },
+    })), origin);
+    page.once('dialog', dialog => dialog.dismiss());
+    await page.evaluate(() => window.__openInvitation('K2.' + 'B'.repeat(21) + 'A'));
+    assert.equal(await page.evaluate(() => window.__starts.length), startsBeforeBadLink, 'Declining an invitation preserves the active match');
     assert.deepEqual(errors, []);
     console.log('Desktop launcher checks passed: Internet P2P host/join, LAN steps, browser joins, invitation addresses, frame isolation, no-network help, offline AI, and relay setup.');
   } finally {

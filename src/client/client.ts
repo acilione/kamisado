@@ -5,11 +5,16 @@ import { normalizeGameInvitation } from '../shared/invitation-url.js';
 import { createRealisticTower, createRealisticSymbol, REALISTIC_COLORS } from './realistic-art.js';
 import { RealisticBoard3D } from './board-3d.js';
 import { InvitationPanel } from './invitation.js';
+import { connectGameSocket } from './transport.js';
 import { PeerPanel } from './peer-panel.js';
+import { normalizePeerInvitation } from '../shared/peer-invitation.js';
+import { installTunnelPanel } from './tunnel-panel.js';
 
 const requestedPeerMode = new URLSearchParams(window.location.search).get('peer');
 const peer = requestedPeerMode === 'host' || requestedPeerMode === 'guest' ? new PeerPanel(requestedPeerMode) : null;
-const socket = peer?.role === 'guest' ? peer.transport.getGuestSocket() : io();
+peer?.updateGame(null);
+const socket = peer?.role === 'guest' ? peer.transport.getGuestSocket() : connectGameSocket();
+const prepareTunnel = installTunnelPanel();
 
 // State
 let gameId: string | null = null;
@@ -51,16 +56,13 @@ if (new URLSearchParams(window.location.search).get('opponent') === 'computer') 
     opponentSelect.value = 'computer';
 }
 if (peer) {
-    opponentSelect.value = 'human';
-    opponentSelect.disabled = true;
     document.getElementById('join-game-options')!.classList.add('hidden');
-    document.getElementById('join-separator')!.classList.add('hidden');
+    document.getElementById('join-separator')!.classList.toggle('hidden', peer.role === 'guest');
+    document.getElementById('app-join-options')!.classList.toggle('hidden', peer.role === 'guest');
     if (peer.role === 'guest') document.getElementById('create-game-options')!.classList.add('hidden');
 }
 function updateOpponentOptions(): void {
-    const solo = opponentSelect.value === 'computer';
-    document.getElementById('computer-options')!.classList.toggle('hidden', !solo);
-    document.getElementById('create-btn')!.textContent = solo ? 'Play computer' : 'Create Game';
+    document.getElementById('computer-options')!.classList.remove('hidden');
 }
 opponentSelect.addEventListener('change', updateOpponentOptions);
 aiLevelSelect.addEventListener('change', () => {
@@ -176,6 +178,17 @@ function getGameIdFromUrl(): string | null {
 }
 
 function sessionUrl(path: string): string {
+    if (prepareTunnel && !window.__KAMISADO_MOBILE__) {
+        const url = new URL(path, window.location.origin);
+        url.searchParams.set('hosting', 'tunnel');
+        return url.pathname + url.search;
+    }
+    if (window.__KAMISADO_MOBILE__) {
+        const url = new URL(path, window.location.href);
+        if (peer) url.searchParams.set('peer', peer.role);
+        // Keep Capacitor on its bundled entry page. Game IDs are in memory.
+        return '/' + url.search;
+    }
     if (!peer) return path;
     const url = new URL(path, window.location.origin);
     url.searchParams.set('peer', peer.role);
@@ -187,8 +200,8 @@ function refreshConnectionState(): void {
     notice.classList.toggle('hidden', connectionReady && !hostStopped);
     notice.textContent = hostStopped
         ? 'The host stopped this game. Ask them for a new invitation.'
-        : peer?.role === 'guest' ? 'Connect to your friend using the connection codes above.' : 'Connection lost. Reconnecting to the host…';
-    for (const id of ['create-btn', 'join-btn']) {
+        : peer?.role === 'guest' ? 'Open or paste your friend’s invitation link to join.' : 'Connection lost. Reconnecting to the host…';
+    for (const id of ['create-btn', 'play-computer-btn', 'join-btn']) {
         (document.getElementById(id) as HTMLButtonElement).disabled = !connectionReady || hostStopped;
     }
     selectedPiece = null;
@@ -242,8 +255,30 @@ socket.on('connect', () => {
 });
 
 // Event Listeners
-document.getElementById('create-btn')!.addEventListener('click', () => {
-    if (!connectionReady || hostStopped || peer?.role === 'guest') return;
+document.getElementById('play-computer-btn')!.addEventListener('click', () => {
+    createGame('computer');
+});
+document.getElementById('create-btn')!.addEventListener('click', () => createGame('human'));
+let preparingGame = false;
+async function createGame(opponent: 'computer' | 'human'): Promise<void> {
+    if (!connectionReady || hostStopped || peer?.role === 'guest' || preparingGame) return;
+    if (opponent === 'human' && (peer || prepareTunnel)) {
+        preparingGame = true;
+        const controls = [...document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('#create-game-options input, #create-game-options select, #create-game-options button')];
+        const disabled = controls.map(control => control.disabled);
+        controls.forEach(control => { control.disabled = true; });
+        try {
+            if (prepareTunnel) invitation.setOrigin(await prepareTunnel());
+            else await peer!.prepareGame();
+        }
+        catch { return; }
+        finally {
+            controls.forEach((control, index) => { control.disabled = disabled[index]; });
+            preparingGame = false;
+        }
+        if (!connectionReady || hostStopped) return;
+    }
+    opponentSelect.value = opponent;
     socket.emit('createGame', {
         opponent: opponentSelect.value === 'computer' ? 'computer' : 'human',
         ...(opponentSelect.value === 'computer' ? { aiLevel: Number(aiLevelSelect.value) } : {}),
@@ -253,10 +288,39 @@ document.getElementById('create-btn')!.addEventListener('click', () => {
         positionMode: (document.getElementById('position-mode') as HTMLSelectElement).value,
         playerId,
     }, currentJoinResponse());
+    opponentSelect.value = 'human';
+}
+
+document.getElementById('join-peer-btn')!.addEventListener('click', () => {
+    const value = (document.getElementById('app-join-link') as HTMLInputElement).value.trim();
+    try {
+        if (value && /^https?:/.test(value)) { openInvitation(normalizeGameInvitation(value)); return; }
+        const code = value ? normalizePeerInvitation(value) : undefined;
+        if (window.__KAMISADO_JOIN_PEER__) window.__KAMISADO_JOIN_PEER__(code);
+        else if (window.parent !== window) window.parent.postMessage({ type: 'kamisado:join-peer', invitation: code }, '*');
+        else window.location.assign('/?peer=guest' + (code ? '#' + code : ''));
+    } catch (error) { alert(error instanceof Error ? error.message : 'Invalid invitation.'); }
 });
+window.addEventListener('hashchange', () => {
+    if (peer?.role !== 'guest' || !window.location.hash) return;
+    if (gameState && !gameState.finished && !confirm('Leave this game and open the new invitation?')) {
+        history.replaceState({}, '', location.pathname + location.search);
+        return;
+    }
+    // A second app link can be a same-document navigation. Recreate the transport cleanly.
+    window.location.reload();
+});
+if (peer?.role === 'guest' && window.location.hash) {
+    const invitationCode = window.location.hash.slice(1);
+    history.replaceState({}, '', window.location.pathname + window.location.search);
+    void peer.joinInvitation(invitationCode).catch(error => {
+        document.getElementById('peer-status')!.textContent = error instanceof Error ? error.message : 'Invalid invitation.';
+    });
+}
 
 let invitationRequest = 0;
 function openInvitation(url: string): void {
+    if (window.__KAMISADO_OPEN_LAN__) { window.__KAMISADO_OPEN_LAN__(url); return; }
     if (window.parent === window) {
         window.location.assign(url);
         return;
@@ -340,6 +404,8 @@ function currentJoinResponse(): (response: JoinResponse) => void {
 }
 
 function returnToMenu(): void {
+    if (window.parent !== window) window.parent.postMessage({ type: 'kamisado:session', active: false }, '*');
+    opponentSelect.value = 'human';
     gameId = null;
     gameState = null;
     peer?.updateGame(null);
@@ -566,7 +632,13 @@ let chessClockInterval: ReturnType<typeof setInterval> | null = null;
 
 function renderBoard(): void {
     if (!gameState) return;
+    const waitingForOpponent = gameState.roundState === 'waiting_start';
+    screens.game.classList.toggle('waiting-for-opponent', waitingForOpponent);
     boardEl.innerHTML = '';
+    if (waitingForOpponent) {
+        dispose3DBoard();
+        return;
+    }
 
     const canInteract = connectionReady && !hostStopped && !isSpectator &&
         !gameState.finished &&
@@ -650,6 +722,9 @@ function handleCellClick(r: number, c: number): void {
 
     if (piece && piece.player === playerColor) {
         if (gameState.requiredColor && piece.color !== gameState.requiredColor) {
+            selectedPiece = null;
+            renderBoard();
+            alert(`You have to move the ${gameState.requiredColor} piece.`);
             return;
         }
         selectedPiece = { r, c };
@@ -672,7 +747,8 @@ function handleCellClick(r: number, c: number): void {
 
 function updateUI(): void {
     if (!gameState) return;
-    peer?.updateGame(gameState.id, gameState.finished);
+    if (window.parent !== window) window.parent.postMessage({ type: 'kamisado:session', active: !gameState.finished }, '*');
+    peer?.updateGame(gameState.computer ? null : gameState.id, gameState.finished);
     const computer = gameState.computer;
     const computerStatus = document.getElementById('computer-status')!;
     computerStatus.classList.toggle('hidden', !computer);
@@ -853,7 +929,7 @@ function updateUI(): void {
 function updateTimersContainer(): void {
     if (!gameState) return;
 
-    if (gameState.timer && gameState.timer.enabled) {
+    if (gameState.timer && gameState.timer.enabled && gameState.roundState !== 'waiting_start') {
         if (!chessClockInterval) {
             chessClockInterval = setInterval(() => updateClocks(), 100);
         }

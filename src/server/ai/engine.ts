@@ -1,4 +1,3 @@
-import { performance } from 'node:perf_hooks';
 import { AI_LEVELS, isAiLevel } from '../../shared/ai-levels.js';
 import type { FillDirection, GameSettings, GameState, MoveData, PlayerColor } from '../../shared/types.js';
 import type { KamisadoGame } from '../game.js';

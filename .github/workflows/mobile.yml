@@ -1,0 +1,80 @@
+name: Mobile apps
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Mobile game (Chromium and WebKit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:mobile
+      - run: node tests/browser/test_mobile.cjs
+        env:
+          MOBILE_BROWSER: webkit
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;26.1.10909125'
+      - run: npm ci
+      - run: ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" npm run mobile:tunnel
+      - run: npm run mobile:sync
+      - run: bash mobile/android/gradlew -p mobile/android assembleDebug --console=plain
+      - run: npm run release:android
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kamisado-Android-test
+          path: out/release/Android/*
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS simulator build
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run mobile:sync
+      - run: >-
+          xcodebuild -project mobile/ios/App/App.xcodeproj -scheme App
+          -configuration Debug -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath out/ios CODE_SIGNING_ALLOWED=NO build

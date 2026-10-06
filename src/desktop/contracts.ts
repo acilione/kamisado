@@ -23,6 +23,7 @@ export interface StartHostingRequest {
 }
 
 export interface KamisadoDesktopApi {
+    createTurnCredential(request: import('../shared/turn-provider.js').TurnCredentialRequest): Promise<import('../shared/peer-invitation.js').InvitationRelay>;
     getState(): Promise<DesktopState>;
     startHosting(request: StartHostingRequest): Promise<DesktopState>;
     stopHosting(): Promise<DesktopState>;
@@ -30,4 +31,7 @@ export interface KamisadoDesktopApi {
     copyText(value: string): Promise<void>;
     joinGame(url: string): Promise<void>;
     openExternal(url: string): Promise<void>;
+    takeInvitation(): Promise<string | null>;
+    onInvitation(callback: (invitation: string) => void): () => void;
+    onHostingStopped(callback: () => void): () => void;
 }

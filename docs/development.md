@@ -1,5 +1,19 @@
 # Development
 
+Internet hosting uses the existing desktop server. Cloudflare Quick Tunnel is the default; `src/desktop/connectivity/cloudflare-provider.ts` downloads and verifies its pinned connector on first use. ngrok still uses the existing SDK. No developer-hosted signaling service is needed for either tunnel mode.
+
+Android adds a native transport bridge and a bundled Cloudflare connector. Before making a full APK, run `npm run mobile:tunnel` with Go 1.26+ on PATH and `ANDROID_NDK_HOME` pointing to NDK 26.1+. See [Android build commands](mobile.md#android-build). Changing game rules or rendering still means editing the shared TypeScript, not the Java bridge.
+
+Tunnel checks after building:
+
+```sh
+node tests/browser/test_tunnel_host.cjs
+# Optional: makes a temporary public Cloudflare tunnel and exchanges a test move
+node scripts/test-tunnel-live.cjs
+```
+
+For an unlocked Android test phone with its WebView forwarded to port 9223, `node scripts/test-mobile-tunnel-native.cjs` creates a real phone-hosted invitation, joins in a desktop browser, exchanges moves, reloads the guest, and checks that native host assets are not served publicly. This check needs Internet access and Playwright Chromium. `PLAYWRIGHT_CHROMIUM_EXECUTABLE` can select an existing Chromium browser.
+
 For installation and play instructions, see the [README](../README.md) and [player guide](player-guide.md). This guide covers building, testing, and packaging from source.
 
 Install Git and Node.js **22.12 or newer**, including npm. Node.js 24 is recommended; CI runs the main test suite on Node.js 22 and 24.
@@ -57,7 +71,9 @@ After `npm ci`, the desktop commands are:
 | --- | --- |
 | `npm run desktop:dev` | Builds the code and launches Electron through Forge. |
 | `npm run desktop:package` | Builds an unpacked application under `out/Kamisado-<platform>-<arch>/`. |
-| `npm run desktop:make` | Packages the application and creates the configured installers and archives under `out/make/`. |
+| `npm run desktop:make` | Packages the application and creates a portable ZIP under `out/make/zip/`. |
+| `npm run release:desktop` | Collects the portable build, ZIP, guide, and checksums into `out/release/<platform>-desktop/`. |
+| `npm run release:android` | Collects the debug APK and instructions into `out/release/Android/`. |
 
 Each command rebuilds before running Forge. `desktop:dev` has no source watcher; restart it after changing TypeScript. Packaging uses [`forge.config.js`](../forge.config.js), stores application files in `app.asar`, unpacks native `.node` modules, and copies `desktop/START-HERE.txt` into the package directory.
 
@@ -72,32 +88,20 @@ npm ci
 npm run desktop:make -- --arch=x64
 ```
 
-The configured makers produce a Squirrel `Setup.exe`, its update files, and a portable ZIP. The unpacked executable is `out/Kamisado-win32-x64/Kamisado.exe`.
+The configured maker produces a portable ZIP. Run `npm run release:desktop` to collect it with the unpacked app into `out/release/Windows-desktop/`. The original unpacked executable is `out/Kamisado-win32-x64/Kamisado.exe`.
 
 ### Linux
 
-The full make command produces ZIP, DEB, and RPM files. DEB creation requires `dpkg` and `fakeroot`; RPM creation requires `rpmbuild`. ZIP creation uses `zip`. On Debian or Ubuntu, install the packaging tools with:
+The make command produces a portable ZIP and needs `zip`. On Debian or Ubuntu:
 
 ```sh
-sudo apt-get update
-sudo apt-get install -y dpkg fakeroot rpm zip
+sudo apt-get install -y zip
 npm ci
 npm run desktop:make -- --arch=x64
+npm run release:desktop
 ```
 
-Electron needs a graphical session and its system libraries to launch. For headless packaged tests, install `xvfb` as described below. The unpacked executable is `out/Kamisado-linux-x64/Kamisado`.
-
-If you only need a ZIP, omit the DEB and RPM makers:
-
-```sh
-npm run desktop:make -- --arch=x64 --targets=@electron-forge/maker-zip
-```
-
-For ZIP and DEB together, without the RPM toolchain:
-
-```sh
-npm run desktop:make -- --arch=x64 --targets=@electron-forge/maker-zip,@electron-forge/maker-deb
-```
+Open `out/release/Linux-desktop/Kamisado/Kamisado`. The app runs without installing a package; Electron still needs a graphical session and its system libraries. For headless packaged tests, install `xvfb` as described below. The original unpacked build remains in `out/Kamisado-linux-x64/`.
 
 ### macOS
 
@@ -112,6 +116,10 @@ Use `--arch=x64` for Intel Macs. The package contains `Kamisado.app` under `out/
 
 If npm needs to compile a native dependency, install Apple's Command Line Tools with `xcode-select --install`. Distribution builds need signing and notarization configured in Forge; see [Forge's macOS signing guide](https://www.electronforge.io/guides/code-signing/code-signing-macos).
 
+## Mobile applications
+
+Android and iOS use Capacitor with the existing game UI, match controller, and AI. Run `npm run mobile:sync` to bundle the mobile app and copy it into both native projects. `npm run mobile:android` and `npm run mobile:ios` open the platform IDE. See [Mobile](mobile.md) for SDK requirements, APK and iOS builds, installation, and the source layout.
+
 ## Tests
 
 ```sh
@@ -125,7 +133,9 @@ This runs type checking, unit tests, then integration tests. Integration tests b
 | `npm run typecheck` | Application and TypeScript test sources, without emitting files. |
 | `npm run test:unit` | Rules, sumo, clocks, AI search/workers, invitations, connectivity, credentials, server shutdown, and desktop artifact collection. |
 | `npm run test:integration` | Games, spectators, links, reconnection, lobby refresh, socket resilience, and computer matches. |
-| `npm run test:browser` | Board views, invitations, computer games, the launcher UI, and WebRTC transport/game flows in Chromium. |
+| `npm run test:browser` | Board views, invitations, computer games, the launcher UI, manual WebRTC, and quick join against a local PeerServer in Chromium. |
+| `npm run test:mobile` | Offline phone play, touch layouts, and P2P interoperability with desktop using the mobile bundle. |
+| `npm run test:p2p-relay` | Quick and manual connections through a real TURN service, invalid credentials, invitation privacy, and desktop/mobile moves. Requires the test relay variables below. |
 | `npm run test:desktop` | Launches an existing packaged application and checks real desktop, browser guest, P2P, and offline play flows. |
 
 Browser and packaged tests are separate from `npm test`. Install Chromium before running them:
@@ -147,7 +157,23 @@ npm run desktop:package
 xvfb-run --auto-servernum npm run test:desktop
 ```
 
-The packaged test uses a temporary Electron profile and normally locates the executable for the current OS and Node.js architecture. Browser screenshots are written under `out/`. The WebRTC tests use local ICE candidates; they verify the transport and game flow without testing every Internet router or STUN deployment.
+The packaged test uses a temporary Electron profile and normally locates the executable for the current OS and Node.js architecture. Browser screenshots are written under `out/`. The ordinary WebRTC tests use local ICE candidates. The separate relay test needs `KAMISADO_TEST_TURN_URL`, `KAMISADO_TEST_TURN_USER`, and `KAMISADO_TEST_TURN_PASSWORD` set in the shell to an authenticated test TURN service. It deliberately attempts an invalid password before using the supplied credentials; use a test account. Quick-connect tests import ICE JSON, discard direct ICE candidates to exercise automatic fallback with the original invitation, then verify actual relay candidates and desktop/mobile moves in both hosting directions. Set `KAMISADO_TEST_TURN_DIRECT=host` or `guest` when running `node tests/browser/test_quick_join.cjs` with the TURN variables to exercise immediate relay selection instead. These variants assert that no direct RTC connection is created. Authentication failures must never trigger a fallback retry. Neither suite tests every Internet router or carrier.
+
+For a local-only relay test on Linux with Docker, start this temporary service. The loopback exception is for this test only; do not use this configuration for a public deployment:
+
+```sh
+docker run --rm -d --name kamisado-turn-test --network host coturn/coturn:4.6.3 \
+  -n --listening-ip=127.0.0.1 --relay-ip=127.0.0.1 --listening-port=34790 \
+  --min-port=49190 --max-port=49210 --realm=kamisado-test \
+  --user=kamisado-test:local-test-only --lt-cred-mech --no-tls --no-dtls \
+  --no-cli --allow-loopback-peers --no-multicast-peers --log-file=stdout
+KAMISADO_TEST_TURN_URL='turn:127.0.0.1:34790?transport=tcp' \
+KAMISADO_TEST_TURN_USER=kamisado-test KAMISADO_TEST_TURN_PASSWORD=local-test-only \
+  npm run test:p2p-relay
+docker stop kamisado-turn-test
+```
+
+Stop the test container even if a test fails. For testing a provider's secure endpoint, use its `turns:` URL and temporary credentials in the same environment variables; keep them out of Git and CI logs.
 
 ## Environment variables
 
@@ -164,7 +190,7 @@ Set variables in the shell before starting the relevant command. The application
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE` | Browser and packaged tests | Use a specific Chromium executable instead of Playwright's installed browser. |
 | `KAMISADO_PACKAGED_EXECUTABLE` | `test:desktop` | Override the packaged application executable to launch. |
 
-To test the optional ngrok relay from source, build first, set `NGROK_AUTHTOKEN`, then run `npm run ngrok`. The script starts its own loopback server and prints the public URL. Do not run `npm start` on the same port alongside it. Direct WebRTC play uses the invitation/reply controls and does not use this script or a token.
+To test the optional ngrok relay from source, build first, set `NGROK_AUTHTOKEN`, then run `npm run ngrok`. The script starts its own loopback server and prints the public URL. Do not run `npm start` on the same port alongside it. WebRTC play uses Quick connect or manual code exchange and does not use this script or a token.
 
 ## CI and releases
 
@@ -178,20 +204,28 @@ For a candidate build, run **Desktop downloads** manually in GitHub Actions. It 
 
 The tag workflow creates or updates a draft; it refuses to replace an already published release. Signing is not configured for the current downloads.
 
-Before publishing, install the downloads on machines without development tools and check the packaged `START-HERE.txt`. Play a LAN round from a second device and a P2P round across two separate Internet connections. Check both board views, symbol mode, computer play, and session shutdown. Local automated tests do not cover those installation and network combinations. Test ngrok with a real account if offering the relay, and record any platform limitations in the release notes.
+Before publishing, extract and run the downloads on machines without development tools and check the packaged `START-HERE.txt`. Play a LAN round from a second device and a P2P round across two separate Internet connections. Check both board views, symbol mode, computer play, and session shutdown. Local automated tests do not cover those operating-system and network combinations. Test ngrok with a real account if offering the relay, and record any platform limitations in the release notes.
 
-For local artifact collection after a full make:
-
-```sh
-node scripts/collect-desktop-artifacts.cjs
-```
-
-This copies downloads from `out/make/` into `out/release/`, adds the offline guide, and writes SHA-256 checksums. The destination must be empty, and the default check expects every configured format for the current OS. For the partial Linux build above, specify the expected formats and a fresh destination:
+For local artifact collection after `npm run desktop:make`:
 
 ```sh
-node scripts/collect-desktop-artifacts.cjs out/make out/release-zip-deb --formats=zip,deb
+npm run release:desktop
 ```
 
-`--formats` changes which formats are required; the collector still copies every recognized download in the source directory. Use a fresh build output for each release so old installers do not enter the collection.
+The collector creates `out/release/Windows-desktop/`, `Linux-desktop/`, or `macOS-desktop/` for the current platform. Each contains a ready-to-run `Kamisado/` directory, a clearly named `Kamisado-<version>-<OS>-<arch>-portable.zip`, a start guide, and checksums. Send the ZIP, not just the executable. CI uploads only the ZIP, guide, and checksums to avoid duplicating the unpacked runtime.
+
+The destination platform folder must be empty. Move the previous build elsewhere before collecting a replacement; other platforms can stay in `out/release/`. Build and collect on the same OS with the same source revision. The collector selects the ZIP matching `package.json` and refuses missing runtime files. Do not collect an older ZIP after rebuilding only the unpacked application.
+
+For a non-default architecture or output directory, pass all three arguments:
+
+```sh
+node scripts/collect-desktop-artifacts.cjs out/make/zip/darwin/x64 out/release/macOS-desktop x64
+```
+
+For Android, build the debug APK first, then run `npm run release:android`. It copies the APK into `out/release/Android/` with installation instructions and checksums. A custom APK source and destination can be passed to `node scripts/collect-android-artifacts.cjs <debug-apk> <destination>`. This command labels the APK as a test build; production signing remains a separate step.
 
 See [Architecture](architecture.md) for the source layout and runtime boundaries, and [AI research](ai-research.md) for the search design and its limits.
+
+The `test_turn_invitation.ts` unit test covers K3 payload validation, unchanged peer identity, lifetime estimates, provider request contracts, and sanitized errors. With the existing local TURN test configuration, set `KAMISADO_TEST_TURN_GENERATE=1` to test the host generation UI using a mocked provider result and real relay traffic; no provider account secret is needed. The test verifies that guests join through K3 links without entering credentials and that account secrets do not enter the link. Live Metered provisioning requires a host-owned account and is separate from this deterministic test.
+
+After packaging, `node scripts/test-turn-native.cjs` checks the Electron frame/IPC/provider boundary with mocked HTTP responses. Set `KAMISADO_PACKAGED_EXECUTABLE` to select another portable executable; Linux CI can use `xvfb-run -a node scripts/test-turn-native.cjs`. No real provider account is contacted.
