@@ -133,8 +133,8 @@ async function main() {
     assert.equal(await shell.locator('#online-button').isVisible(), false, 'the optional ngrok relay stays inside connection options');
     const initial = await shell.evaluate(() => window.kamisadoDesktop.getState());
     assert.equal(initial.status, 'ready');
-    assert.equal(initial.localOnly, true, 'the initial settings screen only serves assets on loopback');
-    assert.deepEqual(initial.connectivity.reachableOrigins, [initial.localOrigin]);
+    assert.equal(initial.localOnly, false, 'initial game settings prepare the reusable network server');
+    assert.equal(initial.connectivity.mode, 'direct', 'opening settings must not start an Internet tunnel');
 
     console.log('Packaged smoke: waiting for host window to show');
     await bounded(app.evaluate(async ({ BrowserWindow }) => {
@@ -262,7 +262,7 @@ async function main() {
       assert.equal(await peerPage.locator('#peer-title').textContent(), role === 'host' ? 'Host an Internet game' : 'Join an Internet game');
       assert.equal(await peerPage.locator('#peer-generate').isDisabled(), true, 'codes require a created game or a pasted invitation');
       assert.equal(await peerPage.locator('#peer-outgoing').inputValue(), '', 'starting a peer session must not contact STUN or generate a code automatically');
-      assert.match(await peerPage.locator('#peer-code-help').textContent(), /STUN/);
+        assert.match(await peerPage.locator('#peer-code-help').textContent(), /Keep both apps open/);
       const peer = await shell.evaluate(() => window.kamisadoDesktop.getState());
       assert.equal(peer.status, 'ready');
       assert.equal(peer.localOnly, true, 'the bundled peer page must only listen on loopback');

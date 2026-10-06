@@ -1,5 +1,5 @@
 import type { DataConnection, Peer, PeerOptions } from 'peerjs' with { 'resolution-mode': 'import' };
-import { normalizePeerInvitation } from '../shared/peer-invitation.js';
+import { readPeerInvitation } from '../shared/peer-invitation.js';
 
 const MAX_FRAME_BYTES = 65536;
 const MAX_QUEUED_FRAMES = 32;
@@ -51,8 +51,7 @@ export function generateAutomaticInvitation(relay = false): string {
 }
 
 export function parseAutomaticInvitation(value: string): { secret: Uint8Array<ArrayBuffer>; relay: boolean } {
-    if (typeof value !== 'string' || value.length > 128) throw new Error('Paste the complete Kamisado invitation.');
-    const match = /^(K2R?)\.([A-Za-z0-9_-]{22})$/.exec(normalizePeerInvitation(value));
+    const match = /^(K2R?)\.([A-Za-z0-9_-]{22})$/.exec(readPeerInvitation(value).invitation);
     if (!match) throw new Error('Paste the complete Kamisado invitation.');
     return { secret: decode(match[2], 16), relay: match[1] === 'K2R' };
 }

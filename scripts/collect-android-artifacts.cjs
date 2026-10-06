@@ -14,7 +14,7 @@ async function collectAndroid({ source = 'mobile/android/app/build/outputs/apk/d
   await prepareDestination(destination, [source]);
   await fs.writeFile(path.join(destination, name), apk);
   await fs.writeFile(path.join(destination, 'START-HERE-Android.txt'),
-    `Kamisado for Android\n\nTransfer ${name} to your phone and open it to install.\nAndroid may ask you to allow installation from your browser or file manager.\nOpen Kamisado from your apps after installation.\n\nThis is a development-signed test build. Android requires installation;\nonly the desktop versions run directly from an extracted folder.\nAndroid 7 or newer and Android System WebView 100 or newer are required.\nSee MOBILE-GUIDE.md for details.\n`);
+    `Kamisado for Android\n\nTransfer ${name} to your phone and open it to install.\nAndroid may ask you to allow installation from your browser or file manager.\nOpen Kamisado from your apps after installation.\n\nThis is a development-signed test build. Android requires installation;\nonly the desktop versions run directly from an extracted folder.\nA 64-bit ARM or x86_64 device, Android 7 or newer, and Android System WebView 100 or newer are required.\nSee MOBILE-GUIDE.md for details.\n`);
   await fs.writeFile(path.join(destination, 'MOBILE-GUIDE.md'), guide);
   await writeChecksums(destination, [name, 'START-HERE-Android.txt', 'MOBILE-GUIDE.md'], 'SHA256SUMS-Android.txt');
   return { destination, downloadName: name };

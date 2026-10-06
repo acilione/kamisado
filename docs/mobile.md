@@ -22,13 +22,17 @@ You can also join a desktop LAN game now by opening its invitation link in Safar
 
 ### Game modes
 
-- **Play with computer:** set the difficulty and game options first, then press the button below the settings. All ten levels work offline.
-- **Create game:** choose the settings, create the game, then press **Share link** to open your phone's share sheet. Your friend opens the link and Kamisado joins automatically. Either a phone or a desktop can host; both need an updated app.
-- **Join a game:** open an invitation link, or paste it into this section. Desktop LAN links open in your phone's browser. Scanning a desktop LAN game's QR code with your phone's camera works too.
+- **Play with computer:** choose settings and press the button. All ten levels work offline.
+- **Create game on Android:** choose settings, then press **Create game**. Cloudflare opens a temporary tunnel. Press **Share link**, send the invitation, then return to Kamisado. Your friend opens the link in a browser, without an account or app installation.
+- **Join a game:** open the HTTPS invitation in your browser, or paste it into the app's join field. Legacy `kamisado://join/` invitations still open the P2P join screen.
 
-Phone hosting uses WebRTC connections. A friend joining a phone host needs the mobile or desktop app; phone hosting does not produce a browser link. **Quick connect** uses [PeerJS Cloud](https://peerjs.com/server/cloud) to exchange setup messages automatically. No account or server hosting is required from the players or the app's maintainer. Send the invitation privately, and return to Kamisado after sharing it so the phone can finish connecting. The [player guide](player-guide.md#over-the-internet-with-p2p) covers this flow and the manual alternative.
+Cloudflare Quick Tunnel hosting requires Android 10 or newer and is included for arm64 and x86_64 builds. Older supported Android versions can still play offline and join in a browser. No Termux, router setup, or relay credentials are needed. The host phone must remain awake with Kamisado in the foreground; locking it or switching away for an extended period can interrupt the game. There is no background service or permanent wake lock. Hosting keeps a connector and the game WebView running, so it uses more battery than joining; battery consumption has not been benchmarked. Keep brightness modest and use a charger for long games.
 
-Public STUN helps discover addresses for the default direct attempt. If a router or mobile carrier blocks that path, Quick connect automatically retries through TURN when temporary [relay credentials](player-guide.md#relay-fallback) are configured on both screens before connecting. The same invitation is used. Choose **TURN only (skip P2P)** to skip the direct attempt. **Import provider settings** accepts the provider's ICE-server JSON to fill all three credential fields in one step. Credentials are not saved across navigation or app restarts, and no relay service is bundled. The game still runs on the host's device. Quick connect needs the public signaling service during setup; a signaling outage does not end an already connected match.
+The tunnel forwards traffic through Cloudflare, whose Quick Tunnel service has no uptime guarantee. A new hosting session gets a new address. The app closes the connector when you return to the main menu or close the app. Share invitations privately: anyone with the link can try to join or watch. The provider terminates HTTPS and can process the traffic.
+
+If a fresh invitation does not resolve, keep Kamisado open and ask your friend to retry the same link after a minute. Cloudflare error **1033** means the connector has lost its connection; allow it to reconnect with the phone awake. If the error persists, return to the main menu and create a new invitation. Mobile hosting is experimental: it passed an on-device game test, but the connection also dropped during repeated testing.
+
+ngrok hosting remains desktop-only. iOS hosting still uses the existing P2P flow; an iPhone can join either tunnel service through Safari. No iOS native tunnel connector is included.
 
 Tap a tower, then its destination. In 3D, drag to rotate and pinch to zoom. The view selector and **Symbols** switch are below the board. **Main menu** returns to the settings screen, asking before leaving an unfinished match.
 
@@ -47,11 +51,25 @@ npm run mobile:sync
 
 ### Android build
 
-Install Android Studio 2025.2.1 or newer, JDK 21, and Android SDK platform/build tools 36. Set Android Studio's Gradle JDK to 21. These follow the [Capacitor 8 environment requirements](https://capacitorjs.com/docs/getting-started/environment-setup).
+Install Android Studio 2025.2.1 or newer, JDK 21, Android SDK platform/build tools 36, Go 1.26 or newer, and Android NDK 26.1 or newer. Set Android Studio's Gradle JDK to 21. These follow the [Capacitor 8 environment requirements](https://capacitorjs.com/docs/getting-started/environment-setup).
+
+Build the bundled connector once before building the APK (and again when updating its pinned version):
 
 ```sh
+# Linux/macOS: use your installed NDK path
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125"
+npm run mobile:tunnel
 npm run mobile:android
 ```
+
+```powershell
+# Windows PowerShell: use your installed SDK path
+$env:ANDROID_NDK_HOME = "$env:LOCALAPPDATA/Android/sdk/ndk/26.1.10909125"
+npm run mobile:tunnel
+npm run mobile:android
+```
+
+The connector build downloads checksum-pinned Cloudflare source and uses Go's module checksums for dependencies. It adds the small, checked-in `scripts/android-cloudflared-dns.go` adapter so Go DNS queries use Android's resolver, including its VPN/private DNS settings, instead of looking for a Unix `resolv.conf`. It produces `arm64-v8a` and `x86_64` executables under `mobile/android/app/src/main/jniLibs/`. They are packaged as native libraries because Android does not allow apps to execute downloaded files from writable app storage. `KAMISADO_ANDROID_ABIS=arm64-v8a` can restrict a local device build. Go and the NDK are build-time tools; players only install the APK. Without the connector build, offline games still compile, but Android Internet hosting reports a missing connector.
 
 This synchronizes the assets and opens Android Studio. Select a phone or emulator and press **Run**. Use Android Studio's APK build action to create a test installer.
 
@@ -97,7 +115,10 @@ This produces a simulator application, not an installer for a physical iPhone. N
 | `src/mobile/main.ts` | Mobile menu, native app lifecycle, and opening LAN invitations in the browser. |
 | `src/mobile/local-host.ts` | In-memory event transport connecting the shared client and match controller. |
 | `src/mobile/worker-runner.ts`, `ai-worker.ts` | Web Worker adapter for the shared AI. Desktop uses its existing Node worker adapter. |
-| `src/client/event-socket.ts` | Event and acknowledgement handling shared by local mobile sessions and WebRTC guests. |
+| `src/client/event-socket.ts` | Event and acknowledgement handling shared by local, HTTP, and WebRTC transports. |
+| `src/mobile/tunnel-host.ts`, `tunnel-guest.ts`, `src/client/http-socket.ts` | Android host adapter and browser guest transport; both use the shared match controller. |
+| `mobile/android/.../GameTunnelPlugin.java` | Loopback HTTP listener, bounded guest queues, static guest assets, and connector lifecycle. No game rules. |
+| `scripts/build-android-tunnel.cjs` | Verified source download and Android cross-compilation of cloudflared. |
 | `scripts/build-mobile.cjs` | Packages the existing HTML/CSS and mobile entry point; embeds the AI worker for offline use and iOS's local URL scheme. |
 | `capacitor.config.json`, `mobile/android/`, `mobile/ios/` | App identifiers, native project settings, icons, permissions, and native builds. |
 

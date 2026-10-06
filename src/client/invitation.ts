@@ -16,6 +16,7 @@ export class InvitationPanel {
 
     constructor(origin: string) {
         this.origin = origin;
+        this.button.textContent = typeof window.__KAMISADO_SHARE__ === 'function' || typeof navigator.share === 'function' ? 'Share link' : 'Copy link';
         this.button.addEventListener('click', () => { void this.copy(); });
         this.link.addEventListener('click', () => this.link.select());
     }
@@ -79,6 +80,17 @@ export class InvitationPanel {
     private async copy(): Promise<void> {
         const url = this.link.value;
         try {
+            if (window.__KAMISADO_SHARE__) {
+                const result = await window.__KAMISADO_SHARE__(url);
+                this.feedback.textContent = result === 'cancelled' ? '' : 'Invitation shared.';
+                return;
+            }
+            if (navigator.share) {
+                try { await navigator.share({ title: 'Play Kamisado', url }); }
+                catch (error) { if ((error as Error).name === 'AbortError') return; throw error; }
+                this.feedback.textContent = 'Invitation shared.';
+                return;
+            }
             if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
             await navigator.clipboard.writeText(url);
             this.feedback.textContent = this.link.value === url

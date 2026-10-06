@@ -21,3 +21,9 @@ const worker = esbuild.buildSync({ ...common, entryPoints: ['src/mobile/ai-worke
 esbuild.buildSync({ ...common, entryPoints: ['src/mobile/main.ts'], outfile: path.join(destination, 'mobile.js'),
   define: { KAMISADO_AI_WORKER_SOURCE: JSON.stringify(worker.outputFiles[0].text) } });
 console.log('Mobile web assets built in out/mobile');
+// Android serves the same board to browser guests, without exposing Capacitor assets or plugins.
+const guestRoot = path.join(root, 'mobile/android/app/src/main/assets/tunnel');
+fs.mkdirSync(guestRoot, { recursive: true });
+fs.writeFileSync(path.join(guestRoot, 'index.html'), html.replace('/mobile.js', '/guest.js'));
+for (const file of ['style.css', 'realistic.css']) fs.copyFileSync(path.join(destination, file), path.join(guestRoot, file));
+esbuild.buildSync({ ...common, entryPoints: ['src/mobile/tunnel-guest.ts'], outfile: path.join(guestRoot, 'guest.js') });

@@ -32,7 +32,7 @@ The repository includes a **Desktop downloads** workflow for generating test pac
 
 Keep the files in the extracted folder together. Moving only the executable will break the app. The ZIP version still saves preferences in your Windows user profile.
 
-If you already have the unpacked build, open `Windows-desktop/Kamisado/Kamisado.exe`. Use this Windows build directly from Explorer, even if you develop the game in WSL.
+If you already have the unpacked build, copy the entire `Windows-desktop/Kamisado` folder to a local Windows folder such as Downloads, then open `Kamisado.exe` there. Running it directly from `\\wsl.localhost\...` or another network share prevents Electron's sandboxed processes from starting. The app displays a message explaining where to move it. Copying only the executable is not enough.
 
 The builds are currently unsigned, so Windows may show an unknown-publisher warning. Check that you downloaded the file from the project or received it from a maintainer you trust before opening it.
 
@@ -67,7 +67,7 @@ The [mobile guide](mobile.md) covers the Android APK and iOS project, offline co
 
 If you launch the Linux desktop app inside WSL, its WebRTC connection also runs inside WSL. WSL normally uses NAT and can add another firewall boundary; this can make a direct connection harder. Use the native Windows portable build to remove that layer. If only the Node server runs in WSL and the game opens in a Windows browser, WebRTC originates in that Windows browser. See [Microsoft's WSL networking documentation](https://learn.microsoft.com/en-us/windows/wsl/networking).
 
-A failed direct connection does not identify WSL as the cause. Routers, mobile carriers, and firewalls can also prevent peers on different networks from reaching each other. Try the native Windows app and keep both apps open. Configure **TURN relay settings** on both devices to let Quick connect retry through TURN automatically, or use a reachable network shared by both players. STUN discovers addresses but cannot relay blocked traffic; [WebRTC's TURN guide](https://webrtc.org/getting-started/turn-server) explains this limit.
+A failed direct connection does not identify WSL as the cause. Routers, mobile carriers, and firewalls can also prevent peers on different networks from reaching each other. Try the native Windows app and keep both apps open. Use a Cloudflare invitation, or configure legacy **TURN relay settings** on the host to let Quick connect retry through TURN automatically, or use a reachable network shared by both players. STUN discovers addresses but cannot relay blocked traffic; [WebRTC's TURN guide](https://webrtc.org/getting-started/turn-server) explains this limit.
 
 ## Start a game
 
@@ -91,7 +91,35 @@ Only the host needs the desktop app. The other player can use a browser on a com
 
 If the other player has the desktop app too, **Join with a link** opens the invitation in their usual browser. Send the full link, including the address and `/game/…` part. LAN play does not need an account or an Internet connection.
 
+### Internet invitations
+
+1. Open the desktop or Android app and choose your game settings.
+2. Press **Create game**. Cloudflare is selected by default. The first desktop connection downloads its connector; Android includes it in the APK.
+3. Wait for the invitation, then press **Share link** (or **Copy link** if sharing is unavailable).
+4. Your friend opens the HTTPS link in a browser on their phone or computer. They do not need an account, password, or installed app.
+5. Keep the host app open and awake. On Android, return to the game after using the share sheet.
+
+Cloudflare Quick Tunnels require no account, domain, payment details, or TURN settings. They are a temporary testing service with no availability guarantee. If creation fails, retry; on desktop you can also select ngrok under **Internet connection**. Ending hosting invalidates the tunnel address, so send a fresh invitation after restarting.
+
+A new address can take a little time to become reachable. If your friend's browser cannot find it, leave the host running and retry the same link after a minute. A Cloudflare **1033** page means the tunnel is disconnected: keep the host awake and connected while it reconnects. If that persists, return to the main menu, create another game, and share the new link.
+
+To host with **ngrok** on desktop:
+
+1. Create or sign in to an [ngrok account](https://dashboard.ngrok.com/), then copy **Your Authtoken** from [the dashboard](https://dashboard.ngrok.com/get-started/your-authtoken). Use the authtoken, not an API key.
+2. In Kamisado, choose your game settings, expand **Internet connection**, and select **ngrok**.
+3. Paste the token into **ngrok authtoken**, then press **Create game**. The desktop app includes the ngrok connector, so there is no separate installation or terminal command.
+4. Send the game's invitation link to your friend and keep Kamisado open. Your friend opens it in a browser; on the free plan, they may first need to click **Visit** on ngrok's welcome page.
+
+Only the host configures the account; invitations do not contain its token. To save the token securely when supported, use **Connection → Other Internet connection options → Connect with ngrok**. The token entered in the game settings is cleared after the connection attempt. ngrok's free plan currently allows 1 GB outgoing traffic and 20,000 HTTP requests per month; check its dashboard for your actual usage and current limits. [ngrok limits](https://ngrok.com/docs/pricing-limits/free-plan-limits)
+
+Share invitations privately. Anyone holding one can try to join or watch. These services forward the connection and terminate HTTPS; they are not end-to-end-encrypted P2P connections. You do not need to run a permanent game server. [Cloudflare Quick Tunnel documentation](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)
+
+ngrok hosting is desktop-only. Android supports Cloudflare hosting; iPhones can join in Safari, while native iOS hosting retains the legacy P2P option.
+
 ### Over the Internet with P2P
+
+This is the legacy connection mode. On desktop, select **Connection → Legacy P2P hosting**. For new games, use Internet invitations above to avoid relay configuration.
+
 
 Both players need an updated desktop or mobile app. The host's device runs the match.
 
@@ -121,37 +149,46 @@ These longer `KAMISADO1` codes remain compatible with earlier versions for direc
 
 ### Relay fallback
 
-Quick connect tries direct P2P first, then automatically retries through TURN if it cannot establish the connection within about 12 seconds. Configure temporary relay credentials before connecting. Both players need an updated app and their own valid credentials; they can use the same provider account. No TURN service is bundled.
+If direct P2P is blocked, a TURN service can forward the encrypted moves. The match still runs on the host's device. No relay service or provider account is bundled with Kamisado.
 
-1. Obtain TURN addresses, a username, and a session password from a relay provider. The app does not include a service or create an account. Use temporary session credentials where the provider supports them; do not enter its account password or API key.
-2. On the host, create the game, open **TURN relay settings**, and enter the credentials before creating or sharing an invitation. Leave **Enable TURN** checked and select **P2P first, TURN if needed**. Prefer the provider's `turns:` address with TCP, often on port 443. The placeholder `relay.example.com` is not a service.
-3. On the guest, open **Join a game**, enter their relay credentials under **TURN relay settings**, paste the invitation, and press **Join**. A newly opened app link starts a direct attempt immediately; if credentials have not been entered on that screen, enter them and retry the same invitation.
-4. The apps first try a direct connection. If it fails, Quick connect automatically uses TURN with the **same invitation**. There is no new link or reply to exchange. The status identifies the selected route.
-5. If TURN also fails, check the credentials and their expiry. Retries are bounded; the app does not loop indefinitely. The host must recreate the invitation if its relay settings change.
+Only the host needs to configure TURN for new Quick connect invitations. The private `kamisado://join/K3.?` link includes session relay access. The guest opens it and joins automatically, without copying a server address, username, or password. Both apps must be updated to read these links. Older `K2.` and `K2R.` invitations remain supported, but do not carry credentials.
 
-Credentials stay in the open app session and are not saved or included in invitation/reply codes. Game data is encrypted between the two apps; the relay forwards it and can see connection addresses and traffic volume. It does not run the game. These are the standard [WebRTC TURN](https://webrtc.org/getting-started/turn-server) and [data-channel encryption](https://www.rfc-editor.org/rfc/rfc8831) mechanisms.
+There are two ways to set up the host:
 
-With the default connection preference, leaving all relay fields empty uses direct P2P only. Unchecking **Enable TURN** also disables relay use for normal invitations. Credentials stay on the current screen and are lost when it reloads or closes. During automatic fallback setup, the app makes no TURN allocation unless the direct attempt fails. An authentication failure or expired invitation does not trigger a relay retry. A relay on your home network must be publicly reachable to serve an Internet opponent.
+- **Import existing credentials:** create the game, open **TURN relay settings ? Import provider settings**, paste your provider's ICE servers JSON, and press **Import TURN settings**. Then share the invitation. This works with any compatible TURN provider. The imported credential keeps its existing provider expiry; Kamisado cannot shorten its lifetime simply by putting it in a link.
+- **Generate temporary credentials:** in the desktop or mobile app's game settings, open **Automatic TURN credentials**. Enable generation, enter your Metered/OpenRelay account domain (for example, `your-app.metered.live`) and account secret key from **Developers** in the provider dashboard. Choose the relay lifetime, then press **Create game**. The app requests fresh credentials for that game before opening the lobby. This setup stays on the host screen for subsequent games; it is not saved across page navigation or app restarts.
 
-Both modes use ordinary `kamisado://join/` invitations. You never edit the link or add a TURN parameter yourself:
+The account secret is used only by the host's native app to call the provider. It is never included in invitations. Do not put an account secret in the manual relay password field. Ordinary browser pages support importing session credentials but cannot generate them through the native provider integration.
+
+**How to connect** appears above the invitation buttons:
 
 | Choice | What happens | Invitation |
 | --- | --- | --- |
-| P2P first, TURN if needed | Tries direct P2P, then TURN if both devices are configured | Automatic fallback keeps the same link. |
-| TURN only (skip P2P), chosen by the host | Both apps skip the direct attempt | Create and share a new link. Opening it selects TURN only on the guest automatically. |
-| TURN only (skip P2P), chosen by the guest | Joins the host's configured relay route immediately | Uses the existing link, including one from a P2P-first host, if the host configured TURN before sharing it. |
+| P2P first, TURN if needed | Tries direct P2P for about 12 seconds, then TURN if configured | Automatic fallback keeps the same link. |
+| TURN only (skip P2P), chosen by the host | Both apps skip the direct attempt | The new link selects TURN only and configures the guest automatically. |
+| TURN only (skip P2P), chosen by the guest | Joins the host's relay route immediately | Works with the same P2P-first invitation if the host included relay access. |
 
-**Host-only credential setup is not supported.** The invitation carries the connection choice, not the relay username or password. Both players must enter or import credentials, even when the link selects TURN only automatically. They may use the same provider-issued credential if the provider permits it; separate accounts are not required by Kamisado. The credential owner's account is charged for its relay usage.
+Change the host's mode or relay settings before sharing. Changing them invalidates its previous invitation, so share the new one. Invitation setup lasts ten minutes; this is separate from the provider credential's lifetime.
 
-Changing the host's mode or credentials invalidates the previous invitation. Share the newly generated link. A guest adding credentials can retry the current valid invitation.
+#### Choosing a credential lifetime
 
-To skip the direct attempt, select **TURN only (skip P2P)** under **How to connect**. On the host, do this before sharing the invitation: the resulting `K2R.` link tells the guest to configure TURN too. Both players need valid credentials. A guest can also choose **TURN only (skip P2P)** for a normal invitation if the host configured automatic relay fallback before sharing it. If TURN is unavailable, this choice reports an error instead of trying direct P2P.
+The automatic estimate uses the selected match length and clocks:
 
-To avoid copying three fields separately, expand **Import provider settings** and paste the provider's **ICE servers JSON**. Press **Import TURN settings** to fill the address, username, and password together. Arrays and objects containing `iceServers` are accepted; JavaScript snippets are not executed. STUN entries are ignored, duplicate addresses are removed, and up to four TURN addresses are retained, with TLS addresses preferred. All TURN entries must use the same credential. Import separately on each device. The pasted text is cleared after a successful import, and credentials remain local to the screen.
+- With a clock: both players' time budgets, plus one minute per possible round for breaks. The game's clocks cover the whole match.
+- Without a clock: thirty minutes per possible round. A match played to `N` points can take up to `2N ? 1` scoring rounds; repeated draws and long pauses can extend it.
+- Add a 50% margin and fifteen minutes for setup, then round up to whole hours, with a one-hour minimum.
 
-**Manual code exchange** still requires an explicit retry: after failure, both players select **Use TURN for the next attempt**, enter credentials, and exchange fresh invitation/reply codes. The connection-preference selector applies to Quick connect.
+For example, a standard three-point untimed match gets four hours; an untimed fifteen-point match gets twenty-two hours. These are estimates, not measured completion times. Use the lifetime selector to choose up to forty-eight hours for a slower game.
 
-For a managed service, [Cloudflare TURN](https://developers.cloudflare.com/realtime/turn/generate-credentials/) supports temporary credentials. Its long-term TURN key is used to generate a session username and credential; it must not be entered into the game or shipped with the app. Enter the returned TURN addresses, username, and credential in the fields above. A provider account and credential generation are separate from building Kamisado.
+Metered enforces the expiry and may disconnect an active relayed match when the time runs out. The app shows the expiry on both devices; it does not silently extend access. New credentials may take up to two minutes to become usable. If a guest opens the link during that period, the app shows a countdown and joins automatically afterward. This conservative wait also applies to a P2P-first invitation containing freshly generated credentials. See Metered's [credential creation API](https://www.metered.ca/docs/turn-rest-api/post-create-credential/) and [expiry guide](https://www.metered.ca/docs/turnserver-guides/expiring-turn-credentials/).
+
+#### Keeping invitations private
+
+The guest's screen does not show shared passwords, but the link grants relay access and its contents can be extracted. Anyone with it may use the credential owner's allowance until the provider expires or revokes the credential. The link is encoded, not encrypted. Share it only with your opponent. Neither relay credentials nor the account secret are saved in browser storage. Native bridge payload logging is disabled to avoid logging secrets or invitations.
+
+Game data is encrypted between the apps; TURN forwards it and can see addresses and traffic volume. The invitation secret and relay password are not sent to the public signaling service. See [WebRTC TURN](https://webrtc.org/getting-started/turn-server) and [data-channel encryption](https://www.rfc-editor.org/rfc/rfc8831).
+
+**Manual code exchange** still needs credentials on both devices and fresh codes for a relay retry. Automatic credential sharing applies to Quick connect links.
 
 ### Cloudflare usage and costs
 

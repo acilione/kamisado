@@ -21,25 +21,27 @@ Local builds are collected in `out/release/`:
 | `Linux-desktop` | `Kamisado/Kamisado` | The `Linux-x64-portable.zip` archive |
 | `Android` | Install the `.apk` on your phone | The `.apk` file |
 
-Desktop builds run without installation. Extract the whole ZIP and keep its files together. On Windows, extract to a Windows folder such as Downloads and open `Kamisado.exe` in Explorer; do not launch the Linux build through WSL. Each platform folder includes a start guide and SHA-256 checksums. These generated files are not committed to Git.
+Desktop builds run without installation. Extract the whole ZIP and keep its files together. On Windows, extract to a local Windows folder such as Downloads and open `Kamisado.exe` in Explorer. The Windows executable cannot run directly from the repository's `\\wsl.localhost\...` location: copy the entire `Kamisado` folder to Windows first. Each platform folder includes a start guide and SHA-256 checksums. These generated files are not committed to Git.
 
 ## Mobile
 
-Android and iOS apps use the same game code through Capacitor. They support offline computer play and direct P2P with mobile or desktop opponents. Android test builds use an APK; iPhone installation requires a signed Xcode build until a TestFlight or App Store release is available. See the [mobile guide](docs/mobile.md) for installation, building, and current limitations.
+Android and iOS apps use the same game code through Capacitor. They share offline computer play. Android can host Cloudflare browser invitations; iOS retains legacy P2P hosting and can join tunnel invitations in Safari. Android test builds use an APK; iPhone installation requires a signed Xcode build until a TestFlight or App Store release is available. See the [mobile guide](docs/mobile.md) for installation, building, and current limitations.
 
 ## Ways to play
 
 | Mode | What you need |
 | --- | --- |
 | Computer | One desktop or mobile app. Works offline, with difficulty levels 1–10. |
-| LAN | Devices on the same Wi-Fi or Ethernet network. The host runs the app; the other player opens an invitation in a browser. |
-| Internet P2P | Set the game options, create a game, and share its app link. Your friend opens the link to join. |
+| Internet — Cloudflare | A desktop or Android 10+ host. Choose settings, press **Create game**, then share the HTTPS invitation. Your friend opens it in a browser. No account or credentials. |
+| Internet — ngrok | A desktop host with an ngrok account and authtoken. Guests only need the invitation link. |
+| LAN | A desktop host and devices on the same Wi-Fi or Ethernet network. Guests open the invitation in a browser. |
+| Legacy P2P | Existing app invitations still work, with STUN/TURN setup where needed. |
 
-**Quick connect** exchanges the connection details through [PeerJS Cloud](https://peerjs.com/server/cloud). Neither the players nor the app's maintainer need an account or a server to run. Both players need an updated app. Share the invitation privately; anyone holding it can try to join. The [player guide](docs/player-guide.md#over-the-internet-with-p2p) covers setup and the manual alternative.
+**Cloudflare Quick Tunnel is the default for new Internet games.** The game runs on the host's device, and Cloudflare forwards the connection. Desktop downloads a pinned, checksum-verified connector on first use; the Android APK includes it. No game server needs to be operated by the maintainer. This is a temporary testing service with no uptime guarantee, not a production hosting commitment. See [Cloudflare's limits](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
 
-Internet P2P runs the game on the host's device and, by default, first tries to send moves directly between the players. Public STUN discovers connection addresses; PeerJS Cloud handles setup messages and does not carry moves. New Quick connect sessions depend on that public service being available. With temporary [TURN credentials configured on both devices](docs/player-guide.md#relay-fallback), Quick connect automatically retries through a relay if the direct connection fails, using the same invitation. Select **TURN only (skip P2P)** to skip that first attempt. **Import provider settings** fills the relay fields from one ICE-server JSON paste. No relay service is bundled. The optional ngrok connection mode is available separately.
+To use ngrok on desktop, expand **Internet connection** in the game settings and select it. Enter the host's authtoken, or use the token saved through the desktop Connection screen. Guests never receive that token. The free plan has usage limits and a browser welcome page. See the [player guide](docs/player-guide.md#internet-invitations).
 
-Keep the host app open during a match. Games are held in memory and are lost when the host closes the app or ends the session.
+Keep the host app open and the device awake during a match. On Android, return to Kamisado after sharing and keep it in the foreground. Games are held in memory and are lost when the host closes the app. Anyone holding an invitation can try to join or watch, so share it privately. HTTPS protects traffic in transit; the tunnel provider terminates HTTPS and is not an end-to-end-encrypted peer connection.
 
 ## Build and run from source
 
@@ -49,7 +51,7 @@ Install Git and Node.js **22.12 or newer** with npm; Node.js 24 is recommended. 
 npm ci
 ```
 
-All commands below start from the repository root. Build desktop apps on the operating system they will run on, using its native Node.js installation. WSL builds Linux apps; use a separate Windows checkout and Windows Node.js to build Windows apps. Mobile commands require the mobile implementation, currently on the `feature/mobile` branch. Before collecting another release, move the previous platform folder out of `out/release/`; collection refuses to mix old and new builds.
+All commands below start from the repository root. Build desktop apps on the operating system they will run on, using its native Node.js installation. WSL builds Linux apps; use a separate Windows checkout and Windows Node.js to build Windows apps. Before collecting another release, move the previous platform folder out of `out/release/`; collection refuses to mix old and new builds.
 
 ### Browser on Windows, Linux, or macOS
 
@@ -143,6 +145,21 @@ For an Intel Mac, replace `arm64` with `x64`. The app and ZIP are in `out/releas
 Install Android Studio, **JDK 21**, Android SDK Platform **36**, Build Tools **36.0.0**, and Platform Tools. Set `JAVA_HOME` to your JDK directory and `ANDROID_HOME` to your SDK directory. Use a checkout and SDK on the same operating system.
 
 To compile and run through Android Studio:
+
+For Cloudflare hosting, first install **Go 1.26+** and **Android NDK 26.1+**, then build the bundled connector once:
+
+```powershell
+# Windows PowerShell
+$env:ANDROID_NDK_HOME = "$env:LOCALAPPDATA/Android/sdk/ndk/26.1.10909125"
+npm run mobile:tunnel
+```
+
+```sh
+# Linux/macOS: adjust this to your installed NDK
+ANDROID_NDK_HOME="$ANDROID_HOME/ndk/26.1.10909125" npm run mobile:tunnel
+```
+
+Then open the native project:
 
 ```sh
 npm run mobile:android

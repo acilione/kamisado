@@ -17,6 +17,8 @@ Windows
   If you received a ZIP, choose Extract All first and open Kamisado.exe
   in the extracted folder. Use a Windows folder such as Downloads, not
   the Linux filesystem inside WSL. Keep the other files beside the app.
+  If the build is in a WSL repository, copy the whole Kamisado folder
+  to Windows Downloads first. Opening the EXE from the WSL share fails.
   Preferences are saved in your Windows user profile.
 
 Linux
@@ -43,6 +45,16 @@ For Mac opening alerts, follow Apple's guidance:
 https://support.apple.com/en-us/102445
 
 Playing
+
+Internet invitations (recommended)
+  Choose your game settings and press "Create game". Cloudflare opens a
+  temporary connection without an account. Share the HTTPS invitation;
+  your friend opens it in their browser. Keep this app open and awake.
+  The first desktop connection downloads a verified Cloudflare connector.
+  Quick Tunnels have no uptime guarantee. If unavailable, try again or
+  select ngrok under "Internet connection" in the game settings.
+  ngrok needs a host account/token; guests never need that token.
+  Share invitations privately. The tunnel provider forwards the traffic.
 
 Against the computer
   Choose your game options and a difficulty from 1 to 10 on the first
@@ -87,17 +99,23 @@ Over the Internet (P2P)
   creates and sends back a reply code. The host pastes the reply and presses
   "Connect to friend". Direct connections also work with older app versions.
 
-  For automatic fallback, enter temporary TURN addresses, username, and
-  password under "TURN relay settings" on both devices before creating or joining
-  an invitation. Quick connect first tries direct P2P, then automatically
-  retries through TURN using the same invitation. Leave all fields empty
-  for direct play only. No relay service is included. Credentials remain
-  on the current screen; they are not saved or sent in invitations.
-  Manual code exchange still needs fresh codes for a relay retry.
+  For automatic fallback, open "TURN relay settings" on the host and import
+  your provider's ICE servers JSON. Share the new private invitation: it
+  configures the guest automatically. P2P is tried first; TURN uses the same
+  invitation if the direct attempt fails. "TURN only (skip P2P)" skips it.
 
-  To skip direct P2P, select "TURN only (skip P2P)" before sharing or joining.
-  Both players still need relay credentials. "Import provider settings"
-  accepts the provider's ICE servers JSON and fills all three fields at once.
+  For fresh temporary credentials per match, open "Automatic TURN credentials"
+  in the host's game settings. Enter your Metered/OpenRelay account domain and
+  secret key, enable generation, and choose a relay lifetime. Create the game
+  and share its link. Only session credentials go into the invitation; the
+  account secret stays on the host. Nothing is saved across app restarts.
+
+  The estimated lifetime includes the clocks, match length, and a margin.
+  Untimed games can run longer: choose a longer lifetime if needed. Provider
+  expiry may disconnect an unfinished game. New credentials may need two
+  minutes to activate; the guest waits automatically. No service is bundled.
+  Treat the link as private relay access. Older apps need an update for it.
+  Manual code exchange still needs credentials on both devices and fresh codes.
 
 Board controls
 

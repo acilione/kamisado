@@ -1,7 +1,9 @@
 import { P2pTransport, invitationUsesRelay, type P2pStatus } from './p2p-transport.js';
 import { parseRelaySettings, parseRelayImport } from './peer-network.js';
 import { AutomaticPeer, parseAutomaticInvitation } from './automatic-peer.js';
-import { normalizePeerInvitation, peerInvitationLink } from '../shared/peer-invitation.js';
+import { normalizePeerInvitation, peerInvitationLink, readPeerInvitation, withInvitationRelay, type InvitationRelay } from '../shared/peer-invitation.js';
+import { estimateRelayLifetime } from '../shared/turn-provider.js';
+import { canGenerateTurn, generateTurn } from './turn-provider.js';
 import { shareLink } from './share-link.js';
 
 /** Quick invitations and manual exchange share the same game transport and authority. */
@@ -16,6 +18,7 @@ export class PeerPanel {
     private relayAttempt = false;
     private quick: AutomaticPeer | null = null;
     private quickExpiry: ReturnType<typeof setTimeout> | null = null;
+    private generatedRelay?: InvitationRelay;
     private readonly panel = document.getElementById('peer-panel') as HTMLDetailsElement;
     private readonly outgoing = document.getElementById('peer-outgoing') as HTMLTextAreaElement;
     private readonly incoming = document.getElementById('peer-incoming') as HTMLTextAreaElement;
@@ -34,6 +37,11 @@ export class PeerPanel {
 
     constructor(role: 'host' | 'guest') {
         this.role = role;
+        document.getElementById('turn-provider')!.classList.toggle('hidden', role !== 'host' || !canGenerateTurn());
+        for (const id of ['match-type', 'timer', 'turn-provider-lifetime']) {
+            document.getElementById(id)!.addEventListener('change', () => this.refreshLifetime());
+        }
+        this.refreshLifetime();
         this.transport = new P2pTransport(role);
         this.panel.classList.remove('hidden');
         this.panel.open = true;
@@ -75,9 +83,16 @@ export class PeerPanel {
         this.connect.addEventListener('click', () => { void this.run(() => this.transport.acceptAnswer(this.incoming.value)); });
         this.quickCreate.addEventListener('click', () => { void this.run(() => this.createInvitation()); });
         this.quickJoin.addEventListener('click', () => { void this.run(async () => {
+            const shared = this.invitationRelay();
+            if (shared?.expiresAt && shared.expiresAt <= Date.now()) throw new Error('This relay access has expired. Ask the host for a new invitation.');
+            if (shared?.readyAt && shared.readyAt > Date.now() + 180000) throw new Error('The invitation is not ready yet. Check the device clock or ask for a new invitation.');
+            while (shared?.readyAt && Date.now() < shared.readyAt) {
+                this.notice.textContent = `The provider is activating relay access. Joining automatically in ${Math.ceil((shared.readyAt - Date.now()) / 1000)} seconds. Keep the app open.`;
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
             const legacyRelay = parseAutomaticInvitation(this.quickIncoming.value).relay;
             const relayOnly = legacyRelay || (this.useRelay.checked && this.relayMode.value === 'always');
-            const relay = this.relaySettings(!relayOnly);
+            const relay = shared?.server ?? this.relaySettings(!relayOnly);
             this.relayAttempt = relayOnly;
             const quick = this.startQuick(legacyRelay ? undefined : relay);
             await quick.join(this.quickIncoming.value, legacyRelay ? relay : undefined, relayOnly && !legacyRelay);
@@ -115,6 +130,7 @@ export class PeerPanel {
                 (document.getElementById('peer-relay-username') as HTMLInputElement).value = relay.username!;
                 (document.getElementById('peer-relay-password') as HTMLInputElement).value = relay.credential as string;
                 input.value = '';
+                this.generatedRelay = undefined;
                 relayChanged();
                 this.notice.textContent = 'TURN settings imported. You can now create or join an invitation.';
             } catch (error) {
@@ -122,7 +138,7 @@ export class PeerPanel {
             }
         });
         for (const id of ['peer-relay-urls', 'peer-relay-username', 'peer-relay-password']) {
-            document.getElementById(id)!.addEventListener('input', relayChanged);
+            document.getElementById(id)!.addEventListener('input', () => { this.generatedRelay = undefined; relayChanged(); });
         }
         this.method.addEventListener('change', () => {
             this.stopQuick();
@@ -141,7 +157,7 @@ export class PeerPanel {
         if (this.role !== 'guest' || this.busy) return;
         this.quickIncoming.value = peerInvitationLink(code);
         this.refresh();
-        if (parseAutomaticInvitation(code).relay) {
+        if (parseAutomaticInvitation(code).relay && !this.invitationRelay()) {
             this.relayPanel.open = true;
             this.notice.textContent = 'The host chose TURN only. This link selects it automatically. Import or enter TURN credentials on this device, then press Join.';
             return;
@@ -160,18 +176,68 @@ export class PeerPanel {
     }
 
     private async createInvitation(): Promise<void> {
+        if (this.generatedRelay?.expiresAt && this.generatedRelay.expiresAt <= Date.now()) {
+            throw new Error('The generated relay access expired. Cancel this lobby and create a new game to renew it.');
+        }
         const relayOnly = this.useRelay.checked && this.relayMode.value === 'always';
         const relay = this.relaySettings(!relayOnly);
         this.relayAttempt = relayOnly;
         const quick = this.startQuick(relayOnly ? undefined : relay);
         const invitation = await quick.createInvite(relayOnly ? relay : undefined);
         if (this.quick !== quick) return;
-        this.quickOutgoing.value = peerInvitationLink(invitation);
+        this.quickOutgoing.value = peerInvitationLink(relay
+            ? withInvitationRelay(invitation, { server: relay, expiresAt: this.generatedRelay?.expiresAt, readyAt: this.generatedRelay?.readyAt })
+            : invitation);
         this.status = 'waiting-answer';
         this.quickExpiry = setTimeout(() => this.quickError('This invitation expired. Create a new invitation.'), 600000);
-        this.notice.textContent = relayOnly
-            ? 'Share the link with your friend. Both players need TURN credentials; this invitation skips direct P2P.'
+        this.notice.textContent = relay
+            ? 'Share this private link. It configures relay access on your friend\'s device automatically.' + (relayOnly ? ' Both apps will use TURN only.' : ' Both apps will try P2P first, then TURN if needed.')
             : 'Share the link with your friend. Opening it in Kamisado joins this game.';
+    }
+
+    private invitationRelay(): InvitationRelay | undefined {
+        if (this.role !== 'guest' || this.method.value !== 'quick') return;
+        try { return readPeerInvitation(this.quickIncoming.value).relay; } catch { return; }
+    }
+
+    private lifetimeSeconds(): number {
+        const selected = (document.getElementById('turn-provider-lifetime') as HTMLSelectElement).value;
+        return selected === 'auto' ? estimateRelayLifetime(
+            (document.getElementById('match-type') as HTMLSelectElement).value,
+            (document.getElementById('timer') as HTMLSelectElement).value) : Number(selected);
+    }
+
+    private refreshLifetime(): void {
+        document.getElementById('turn-lifetime-help')!.textContent = `Relay access will last ${this.lifetimeSeconds() / 3600} hours. The estimate includes both clocks, round breaks, and a margin; untimed rounds use 30 minutes each plus a margin. Expiry can disconnect an unfinished match. Choose longer for slow or untimed games.`;
+    }
+
+    /** Called once for each new human game, before the lobby is created. */
+    async prepareGame(): Promise<void> {
+        if (this.role !== 'host') return;
+        const status = document.getElementById('turn-provider-status')!;
+        if (this.generatedRelay) {
+            for (const id of ['peer-relay-urls', 'peer-relay-username', 'peer-relay-password']) (document.getElementById(id) as HTMLInputElement).value = '';
+        }
+        this.generatedRelay = undefined;
+        if (!(document.getElementById('turn-provider-enabled') as HTMLInputElement).checked) { status.textContent = ''; return; }
+        status.textContent = 'Creating temporary relay access…';
+        try {
+            const relay = await generateTurn({
+                domain: (document.getElementById('turn-provider-domain') as HTMLInputElement).value,
+                secretKey: (document.getElementById('turn-provider-secret') as HTMLInputElement).value,
+                lifetimeSeconds: this.lifetimeSeconds(),
+            });
+            this.generatedRelay = relay;
+            (document.getElementById('peer-relay-urls') as HTMLTextAreaElement).value = (relay.server.urls as string[]).join('\n');
+            (document.getElementById('peer-relay-username') as HTMLInputElement).value = relay.server.username!;
+            (document.getElementById('peer-relay-password') as HTMLInputElement).value = relay.server.credential as string;
+            this.useRelay.checked = true;
+            status.textContent = 'Relay access created. It expires at ' + new Date(relay.expiresAt!).toLocaleString() + '.';
+            this.refresh();
+        } catch (error) {
+            status.textContent = error instanceof Error ? error.message : 'Could not create relay access.';
+            throw error;
+        }
     }
 
     private relaySettings(optional = false): RTCIceServer | undefined {
@@ -261,29 +327,37 @@ export class PeerPanel {
                 ? this.room ? 'Create an invitation code, send it to your friend, then paste their reply to connect.' : 'Create a game below, then exchange an invitation code and a reply.'
                 : 'Paste the invitation, create a reply code, and send it back. Keep this window open while your friend connects.';
         let relayInvitation = false;
+        const shared = this.invitationRelay();
         if (this.role === 'guest') {
             if (quick) {
                 try { relayInvitation = parseAutomaticInvitation(this.quickIncoming.value).relay; } catch { /* Incomplete input. */ }
             } else relayInvitation = invitationUsesRelay(this.incoming.value);
         }
         const canUseRelay = quick || this.directFailed || relayInvitation;
+        if (shared) this.useRelay.checked = true;
         if (quick && relayInvitation) {
             this.relayMode.value = 'always';
             this.useRelay.checked = true;
-            this.relayPanel.open = true;
+            if (!shared) this.relayPanel.open = true;
         }
         if (!canUseRelay) this.useRelay.checked = false;
-        this.useRelay.disabled = this.busy || this.status === 'connected' || !canUseRelay || (quick && relayInvitation);
+        this.useRelay.disabled = this.busy || this.status === 'connected' || !canUseRelay || (quick && relayInvitation) || !!shared;
         this.relayMode.disabled = this.busy || this.status === 'connected' || relayInvitation;
         document.getElementById('peer-connection-preference')!.classList.toggle('hidden', !quick);
         this.relayFields.disabled = this.busy || this.status === 'connected' || !this.useRelay.checked;
-        document.getElementById('peer-relay-help')!.textContent = relayInvitation
+        this.relayFields.classList.toggle('hidden', !!shared);
+        this.quickIncoming.disabled = this.busy || this.status === 'connected';
+        document.getElementById('peer-relay-help')!.textContent = shared
+            ? relayInvitation
+                ? 'The host chose TURN only. The invitation selects this automatically and supplies relay access; there is nothing to enter.'
+                : 'The invitation supplies relay access. Try P2P first with automatic TURN fallback, or choose TURN only to skip the direct attempt.'
+            : relayInvitation
             ? 'The host chose TURN only. The invitation selects this automatically, even if you previously chose P2P first. Enter your TURN credentials below, then join.'
             : quick && this.useRelay.checked && this.relayMode.value === 'always'
                 ? this.role === 'host'
-                    ? 'Use a TURN relay immediately. Create a new invitation after choosing this mode; your friend\'s app will select TURN only from the link. Both devices still need credentials.'
+                    ? 'Use a TURN relay immediately. Your private invitation selects TURN only and configures relay access on your friend\'s device automatically.'
                     : 'Use a TURN relay immediately with the same invitation. The host must have configured TURN before sharing it, even if they chose P2P first.'
-            : quick ? 'Try a direct connection first. If it fails, retry through TURN with the same invitation. Both devices need credentials, and the host must configure TURN before sharing the link.'
+            : quick ? 'Try a direct connection first. If it fails, retry through TURN with the same invitation. Configure TURN on the host before sharing; the private link configures the guest automatically.'
                 : 'Manual exchange: available after a failed connection or a relay invitation. Exchange fresh codes for the relay retry.';
         let relayReady = false;
         try {
@@ -292,10 +366,12 @@ export class PeerPanel {
             parseRelaySettings(values[0], values[1], values[2]);
             relayReady = true;
         } catch { /* Show setup guidance without displaying credential contents. */ }
-        document.getElementById('peer-relay-readiness')!.textContent = !this.useRelay.checked
+        document.getElementById('peer-relay-readiness')!.textContent = shared
+            ? 'Relay access supplied by the host.' + (shared.expiresAt ? ' Expires at ' + new Date(shared.expiresAt).toLocaleString() + '.' : ' Its expiry is controlled by the provider.')
+            : !this.useRelay.checked
             ? 'TURN is off on this device. Enable it in TURN relay settings to use a relay.'
             : relayReady
-                ? 'TURN settings entered on this device. Your friend must also configure their device. Credentials are checked by the provider when connecting.'
+                ? 'TURN settings ready to include in the private invitation. Your friend does not need to enter them.' + (this.generatedRelay?.expiresAt ? ' Access expires at ' + new Date(this.generatedRelay.expiresAt).toLocaleString() + '.' : ' Imported credentials keep their provider expiry; sharing a link does not shorten it.')
                 : this.relayMode.value === 'always'
                     ? 'Setup required: open TURN relay settings and import or enter credentials before connecting.'
                     : 'P2P only until you add credentials in TURN relay settings. TURN fallback is not ready on this device.';

@@ -1,5 +1,19 @@
 # Development
 
+Internet hosting uses the existing desktop server. Cloudflare Quick Tunnel is the default; `src/desktop/connectivity/cloudflare-provider.ts` downloads and verifies its pinned connector on first use. ngrok still uses the existing SDK. No developer-hosted signaling service is needed for either tunnel mode.
+
+Android adds a native transport bridge and a bundled Cloudflare connector. Before making a full APK, run `npm run mobile:tunnel` with Go 1.26+ on PATH and `ANDROID_NDK_HOME` pointing to NDK 26.1+. See [Android build commands](mobile.md#android-build). Changing game rules or rendering still means editing the shared TypeScript, not the Java bridge.
+
+Tunnel checks after building:
+
+```sh
+node tests/browser/test_tunnel_host.cjs
+# Optional: makes a temporary public Cloudflare tunnel and exchanges a test move
+node scripts/test-tunnel-live.cjs
+```
+
+For an unlocked Android test phone with its WebView forwarded to port 9223, `node scripts/test-mobile-tunnel-native.cjs` creates a real phone-hosted invitation, joins in a desktop browser, exchanges moves, reloads the guest, and checks that native host assets are not served publicly. This check needs Internet access and Playwright Chromium. `PLAYWRIGHT_CHROMIUM_EXECUTABLE` can select an existing Chromium browser.
+
 For installation and play instructions, see the [README](../README.md) and [player guide](player-guide.md). This guide covers building, testing, and packaging from source.
 
 Install Git and Node.js **22.12 or newer**, including npm. Node.js 24 is recommended; CI runs the main test suite on Node.js 22 and 24.
@@ -211,3 +225,7 @@ node scripts/collect-desktop-artifacts.cjs out/make/zip/darwin/x64 out/release/m
 For Android, build the debug APK first, then run `npm run release:android`. It copies the APK into `out/release/Android/` with installation instructions and checksums. A custom APK source and destination can be passed to `node scripts/collect-android-artifacts.cjs <debug-apk> <destination>`. This command labels the APK as a test build; production signing remains a separate step.
 
 See [Architecture](architecture.md) for the source layout and runtime boundaries, and [AI research](ai-research.md) for the search design and its limits.
+
+The `test_turn_invitation.ts` unit test covers K3 payload validation, unchanged peer identity, lifetime estimates, provider request contracts, and sanitized errors. With the existing local TURN test configuration, set `KAMISADO_TEST_TURN_GENERATE=1` to test the host generation UI using a mocked provider result and real relay traffic; no provider account secret is needed. The test verifies that guests join through K3 links without entering credentials and that account secrets do not enter the link. Live Metered provisioning requires a host-owned account and is separate from this deterministic test.
+
+After packaging, `node scripts/test-turn-native.cjs` checks the Electron frame/IPC/provider boundary with mocked HTTP responses. Set `KAMISADO_PACKAGED_EXECUTABLE` to select another portable executable; Linux CI can use `xvfb-run -a node scripts/test-turn-native.cjs`. No real provider account is contacted.
