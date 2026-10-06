@@ -28,7 +28,8 @@ export function createLocalHost() {
             } };
         },
     };
-    const host = createSessionHost(hub, { requestComputerMove, getPublicOrigin: () => null });
+    let publicOrigin: string | null = null;
+    const host = createSessionHost(hub, { requestComputerMove, getPublicOrigin: () => publicOrigin });
 
     function deliver(client: EventSocket, event: keyof ServerToClientEvents, args: unknown[]): void {
         // Preserve the network boundary: rendering cannot mutate the live board.
@@ -37,6 +38,10 @@ export function createLocalHost() {
     }
 
     return {
+        setPublicOrigin(origin: string | null): void {
+            publicOrigin = origin;
+            hub.emit('runtimeConfig', { publicOrigin });
+        },
         connect(): GameSocket {
             if (closed) throw new Error('This game session has ended.');
             const id = crypto.randomUUID();

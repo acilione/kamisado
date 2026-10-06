@@ -621,7 +621,8 @@ select:focus-visible {
 #peer-status { color: #c4d7ff; min-height: 1.5em; }
 #peer-code-help { margin: 12px 0 0; }
 #peer-quick input { width: 100%; box-sizing: border-box; padding: 10px; font: inherit; }
-#peer-quick input, #peer-relay-fields input, #peer-method, #peer-relay-mode {
+#peer-quick input, #peer-relay-fields input, #peer-method, #peer-relay-mode,
+#turn-provider input:not([type="checkbox"]), #turn-provider select {
     border: 1px solid #687080;
     border-radius: 6px;
     background: #15171c;
@@ -632,6 +633,10 @@ select:focus-visible {
 #peer-advanced { margin: 12px 0; }
 .game-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 .game-actions button { flex: 1 1 160px; margin: 0; }
+#turn-provider { margin-top: 16px; text-align: left; }
+#turn-provider summary { cursor: pointer; color: #c4d7ff; }
+#turn-provider label { display: block; margin-top: 10px; }
+#turn-provider input:not([type="checkbox"]), #turn-provider select { width: 100%; box-sizing: border-box; margin: 5px 0; }
 #app-join-link { width: 100%; box-sizing: border-box; }
 #peer-relay { margin-top: 12px; }
 #peer-relay-fields { min-width: 0; margin: 12px 0; border: 1px solid #465067; border-radius: 6px; }

@@ -5,6 +5,8 @@ declare global {
     function io(): Socket<ServerToClientEvents, ClientToServerEvents>;
 
     interface Window {
+        __KAMISADO_START_TUNNEL__?: (request: import('./tunnel-panel.js').TunnelRequest) => Promise<string>;
+        __KAMISADO_CREATE_TURN__?: (request: import('../shared/turn-provider.js').TurnCredentialRequest) => Promise<import('../shared/peer-invitation.js').InvitationRelay>;
         __KAMISADO_SOCKET_FACTORY__?: () => import('./transport.js').GameSocket;
         __KAMISADO_MOBILE__?: boolean;
         __KAMISADO_JOIN_PEER__?: (invitation?: string) => void;

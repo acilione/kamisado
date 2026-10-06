@@ -1,4 +1,4 @@
-export type ConnectivityMode = 'direct' | 'ngrok';
+export type ConnectivityMode = 'direct' | 'ngrok' | 'cloudflare';
 
 export interface ProviderContext {
     port: number;

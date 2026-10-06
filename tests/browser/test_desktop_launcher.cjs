@@ -80,12 +80,12 @@ async function run() {
     await page.goto(origin + '/desktop/index.html');
     await page.waitForFunction(() => !document.getElementById('lan-button').disabled);
     await page.locator('#game-panel').waitFor();
-    assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?peer=host');
+    assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?hosting=tunnel');
     await page.locator('#hosting-settings').click();
     assert.match(await page.locator('#lan-button').textContent(), /Wi-Fi or Ethernet/);
     assert.equal(await page.locator('#internet-options').getAttribute('open'), null);
     assert.equal(await page.locator('#token-setup').isVisible(), false);
-    assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?peer=host');
+    assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?hosting=tunnel');
 
     await page.locator('#join-invitation').fill('not an invitation');
     await page.locator('#join-invitation').press('Enter');
@@ -96,7 +96,7 @@ async function run() {
     await page.locator('#join-button').click();
     await page.waitForFunction(() => window.__joins.length === 1);
     assert.deepEqual(await page.evaluate(() => window.__joins), [invitation]);
-    assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?peer=host', 'LAN joins preserve the local setup frame');
+    assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?hosting=tunnel', 'LAN joins preserve the local setup frame');
     assert.equal(await page.evaluate(() => window.__starts.length), 1, 'LAN joins must not start another server');
 
     await page.locator('#lan-button').click();

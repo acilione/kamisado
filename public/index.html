@@ -40,7 +40,7 @@
                 </div>
                 <div id="peer-quick-guest">
                     <label for="peer-quick-incoming">Your friend's invitation</label>
-                    <input id="peer-quick-incoming" type="text" maxlength="128" placeholder="kamisado://join/…" autocomplete="off" autocapitalize="off" spellcheck="false">
+                    <input id="peer-quick-incoming" type="text" maxlength="16384" placeholder="kamisado://join/…" autocomplete="off" autocapitalize="off" spellcheck="false">
                     <button id="peer-quick-join" type="button">Join</button>
                 </div>
                 <p class="option-help">PeerJS Cloud exchanges connection details automatically. No account is needed. The game runs on the host's device.</p>
@@ -72,7 +72,7 @@
                 <summary>TURN relay settings</summary>
                 <p class="option-help">A TURN service can forward encrypted moves while the game stays on the host's device. No relay service is included.</p>
                 <label><input id="peer-use-relay" type="checkbox" checked> <span id="peer-relay-label">Enable TURN</span></label>
-                <p class="option-help">Both players must enter or import TURN credentials on their own device. Invitation links carry the connection choice, but do not include these credentials.</p>
+                <p class="option-help">The host's Quick connect link includes relay access, so the guest joins without entering credentials. Share it privately: anyone with the link can use that access until the provider expires or revokes it.</p>
                 <fieldset id="peer-relay-fields" disabled>
                     <legend>Credentials from your TURN provider</legend>
                     <details>
@@ -89,7 +89,7 @@
                     <label for="peer-relay-password">Password</label>
                     <input id="peer-relay-password" type="password" maxlength="2048" autocomplete="off">
                 </fieldset>
-                <p class="option-help">Use the provider's TLS/TCP address when available. Enter session credentials, never a provider account password or API key. They stay in this screen until you leave or close it and are not included in invitations. Quick connect can retry automatically or use TURN directly. Manual exchange requires fresh codes.</p>
+                <p class="option-help">Use the provider's TLS/TCP address when available. These fields accept session credentials, never an account secret key. Quick connect includes session credentials in the private invitation. Manual exchange still needs credentials on both devices.</p>
             </details>
             <p id="peer-code-help" class="option-help">Keep both apps open while connecting and playing. Both connection choices use kamisado://join/ links. Changing the host's connection settings requires a new invitation; an automatic TURN retry keeps the same link.</p>
         </details>
@@ -99,6 +99,22 @@
             <p class="tagline">Color decides your next move.</p>
             <div id="create-game-options" class="menu-group">
                 <h3>Game settings</h3>
+                <details id="tunnel-options" class="hidden">
+                    <summary>Internet connection</summary>
+                    <label for="tunnel-provider">Invitation service</label>
+                    <select id="tunnel-provider">
+                        <option value="cloudflare">Cloudflare Quick Tunnel — no account</option>
+                        <option value="ngrok">ngrok — host account required</option>
+                    </select>
+                    <p class="option-help">Your friend opens an HTTPS link in their browser. No setup or credentials needed. The game runs on this device; the service forwards the connection.</p>
+                    <p class="option-help">Cloudflare Quick Tunnels are a free testing service with no uptime guarantee. Keep the host app open and the device awake.</p>
+                    <div id="tunnel-ngrok" class="hidden">
+                        <label for="tunnel-token">Host's ngrok authtoken</label>
+                        <input id="tunnel-token" type="password" autocomplete="off" maxlength="2048" placeholder="Paste your token (or use the desktop's saved token)">
+                        <p class="option-help">Get a token from dashboard.ngrok.com. It stays on the host and is never added to invitations. The free plan has usage limits and a browser welcome page.</p>
+                    </div>
+                </details>
+                <p id="tunnel-status" class="option-help" role="status" aria-live="polite"></p>
                 <label for="opponent" class="hidden">Opponent:
                     <select id="opponent">
                         <option value="human">A friend</option>
@@ -155,6 +171,29 @@
                         <input type="checkbox" id="symbol-mode" class="symbol-mode-toggle" role="switch" aria-label="Symbol mode (color-blind friendly)">
                     </label>
                 </div>
+                <details id="turn-provider" class="hidden">
+                    <summary>Automatic TURN credentials</summary>
+                    <p class="option-help">Optional Metered / OpenRelay account setup for the host. Create temporary relay access for each new multiplayer game; your friend receives it through the invitation.</p>
+                    <label><input id="turn-provider-enabled" type="checkbox"> Generate credentials when I create a game</label>
+                    <label for="turn-provider-domain">Account domain</label>
+                    <input id="turn-provider-domain" type="text" maxlength="100" placeholder="your-app.metered.live" autocapitalize="off" autocomplete="off" spellcheck="false">
+                    <label for="turn-provider-secret">Account secret key (host only)</label>
+                    <input id="turn-provider-secret" type="password" maxlength="2048" autocomplete="off">
+                    <label for="turn-provider-lifetime">Relay lifetime</label>
+                    <select id="turn-provider-lifetime">
+                        <option value="auto">Estimate from game settings</option>
+                        <option value="3600">1 hour</option>
+                        <option value="7200">2 hours</option>
+                        <option value="14400">4 hours</option>
+                        <option value="28800">8 hours</option>
+                        <option value="43200">12 hours</option>
+                        <option value="86400">24 hours</option>
+                        <option value="172800">48 hours</option>
+                    </select>
+                    <p id="turn-lifetime-help" class="option-help"></p>
+                    <p class="option-help">Find the domain and secret key under Developers in your Metered dashboard. The account secret stays on this host screen and is never included in invitations or saved to disk. New credentials may take up to two minutes to become usable. The guest waits automatically.</p>
+                    <p id="turn-provider-status" role="status" aria-live="polite"></p>
+                </details>
                 <div class="game-actions">
                     <button id="play-computer-btn" type="button" disabled>Play with computer</button>
                     <button id="create-btn" type="button" disabled>Create game</button>
@@ -165,7 +204,7 @@
             <div id="app-join-options" class="menu-group hidden">
                 <h3>Join a game</h3>
                 <p class="option-help">Open your friend's invitation link, or paste it here.</p>
-                <input id="app-join-link" type="text" maxlength="2048" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Invitation link" aria-label="Invitation link">
+                <input id="app-join-link" type="text" maxlength="16384" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Invitation link" aria-label="Invitation link">
                 <button id="join-peer-btn" type="button">Join a game</button>
             </div>
 

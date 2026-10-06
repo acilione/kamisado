@@ -2,6 +2,7 @@
   "appId": "io.github.acilione.kamisado",
   "appName": "Kamisado",
   "webDir": "out/mobile",
+  "loggingBehavior": "none",
   "android": { "path": "mobile/android", "minWebViewVersion": 100 },
   "ios": { "path": "mobile/ios" }
 }

@@ -13,6 +13,7 @@ const relay = process.env.KAMISADO_TEST_TURN_URL ? {
   password: process.env.KAMISADO_TEST_TURN_PASSWORD,
 } : null;
 const relayDirect = process.env.KAMISADO_TEST_TURN_DIRECT;
+const generateRelay = process.env.KAMISADO_TEST_TURN_GENERATE === '1';
 
 async function configureRelay(page) {
   await page.locator('#peer-relay').evaluate(panel => { panel.open = true; });
@@ -52,6 +53,14 @@ async function run() {
       const signalingSockets = [];
       const hostContext = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
       const guestContext = await browser.newContext({ hasTouch: true, viewport: { width: 390, height: 844 } });
+      if (generateRelay) await hostContext.addInitScript(relay => {
+        window.generatedTurnRequests = [];
+        window.__KAMISADO_CREATE_TURN__ = async request => {
+          window.generatedTurnRequests.push(request);
+          return { server: { urls: relay.urls.trim().split(/\s+/), username: relay.username, credential: relay.password },
+            expiresAt: Date.now() + request.lifetimeSeconds * 1000, readyAt: Date.now() + 7000 };
+        };
+      }, relay);
       for (const context of [hostContext, guestContext]) await context.addInitScript(config => {
         window.__KAMISADO_SIGNALING__ = config;
         window.__KAMISADO_SHARE__ = async link => { window.lastSharedLink = link; return 'shared'; };
@@ -95,22 +104,37 @@ async function run() {
       assert.equal(await host.locator('#peer-steps').isVisible(), false, 'Manual signaling stays out of the quick flow');
       assert.equal(await host.locator('#peer-use-relay').isEnabled(), true);
       await host.locator('#color-mode').selectOption('black');
+      if (generateRelay) {
+        await host.locator('#turn-provider > summary').click();
+        await host.locator('#turn-provider-enabled').check();
+        await host.locator('#turn-provider-domain').fill('test.metered.live');
+        await host.locator('#turn-provider-secret').fill('host-account-secret-test-only');
+        await host.locator('#turn-provider-lifetime').selectOption('7200');
+      }
       await host.locator('#create-btn').click();
       await host.locator('#game-screen').waitFor();
+      if (generateRelay) {
+        host.on('dialog', dialog => dialog.accept());
+        await host.locator('#cancel-game-btn').click();
+        await host.locator('#create-btn').click();
+        await host.locator('#game-screen').waitFor();
+        assert.equal(await host.evaluate(() => generatedTurnRequests.length), 2, 'Every new multiplayer game requests fresh credentials');
+      }
       assert.equal(await host.locator('#board-container').isVisible(), false, 'desktop and mobile hosts wait without a board');
       assert.equal(await host.locator('#board-options').isVisible(), false);
       assert.equal(await host.locator('#peer-relay-mode').isVisible(), true, 'Connection choice is visible before opening relay settings');
-      assert.match(await host.locator('#peer-relay-readiness').textContent(), /P2P only until/);
+      assert.match(await host.locator('#peer-relay-readiness').textContent(), generateRelay ? /Access expires at/ : /P2P only until/);
+      if (generateRelay) assert.equal(await host.evaluate(() => generatedTurnRequests[0].lifetimeSeconds), 7200);
       if (relay) {
-        await configureRelay(host);
-        await configureRelay(guest);
+        if (!generateRelay) await configureRelay(host);
         if (relayDirect) await (relayDirect === 'host' ? host : guest).locator('#peer-relay-mode').selectOption('always');
       }
       await host.locator('#peer-quick-share').click();
       await host.waitForFunction(prefix => document.getElementById('peer-quick-outgoing').value.startsWith(prefix),
-        relayDirect === 'host' ? 'kamisado://join/K2R.' : 'kamisado://join/K2.');
+        relay ? 'kamisado://join/K3.' : 'kamisado://join/K2.');
       const first = await host.locator('#peer-quick-outgoing').inputValue();
-      assert.equal(first.length, 'kamisado://join/'.length + (relayDirect === 'host' ? 26 : 25));
+      if (!relay) assert.equal(first.length, 'kamisado://join/'.length + 25);
+      if (generateRelay) assert.equal(Buffer.from(first.split('K3.')[1], 'base64url').toString().includes('host-account-secret'), false);
       await host.waitForFunction(link => window.lastSharedLink === link, first);
       await host.screenshot({ path: path.join(screenshots, `${engine.name()}-${mobileHosts ? 'mobile' : 'desktop'}-invitation.png`), fullPage: true });
       await host.locator('#peer-relay').evaluate(panel => { panel.open = true; });
@@ -122,7 +146,21 @@ async function run() {
       await host.locator('#peer-quick-create').click();
       await host.waitForFunction(old => document.getElementById('peer-quick-outgoing').value.length > 0 && document.getElementById('peer-quick-outgoing').value !== old, first);
       let invitation = await host.locator('#peer-quick-outgoing').inputValue();
+      if (relay) {
+        const expired = JSON.parse(Buffer.from(invitation.split('K3.')[1], 'base64url').toString());
+        expired.expiresAt = Date.now() - 1000;
+        delete expired.readyAt;
+        await guest.locator('#peer-quick-incoming').fill('kamisado://join/K3.' + Buffer.from(JSON.stringify(expired)).toString('base64url'));
+        await guest.locator('#peer-quick-join').click();
+        await guest.waitForFunction(() => document.getElementById('peer-status').textContent.includes('relay access has expired'));
+        assert.equal(await guest.locator('#game-screen').isVisible(), false);
+      }
       await guest.locator('#peer-quick-incoming').fill(first);
+      if (relay) {
+        assert.equal(await guest.locator('#peer-relay-password').inputValue(), '', 'Guest never types or displays the shared credential');
+        assert.equal(await guest.locator('#peer-relay-fields').isVisible(), false);
+        assert.match(await guest.locator('#peer-relay-readiness').textContent(), /supplied by the host/);
+      }
       if (relayDirect === 'host') {
         assert.equal(await guest.locator('#peer-relay-mode').inputValue(), 'always', 'Invitation overrides the guest P2P-first choice');
         assert.equal(await guest.locator('#peer-relay-mode').isDisabled(), true);
@@ -148,8 +186,9 @@ async function run() {
         }
       }
       await guest.evaluate(() => window.tamperProof = false);
-      if (relay) await guest.locator('#peer-quick-join').click();
+      if (relayDirect === 'guest') await guest.locator('#peer-quick-join').click();
       else {
+        if (relay) await guestContext.addInitScript(() => { window.blockDirect = true; });
         await guest.goto((mobileHosts ? gameOrigin : mobileOrigin) + '/?peer=guest#' + invitation.slice('kamisado://join/'.length));
         await guest.waitForFunction(() => !location.hash);
       }
@@ -160,6 +199,11 @@ async function run() {
         document.getElementById('peer-status').textContent.includes(expected), relay ? 'Connected through an encrypted relay' : 'Connected directly');
       for (const code of [first, directInvitation, invitation]) {
         assert.equal(JSON.stringify(frames).includes(code.split('.')[1]), false, 'The invitation secret must not travel through signaling');
+      }
+      if (relay) {
+        assert.equal(JSON.stringify(frames).includes(relay.password), false, 'Shared TURN password must not travel through signaling');
+        const payload = JSON.parse(Buffer.from(invitation.split('K3.')[1], 'base64url').toString());
+        assert.equal(JSON.stringify(frames).includes(payload.invitation.split('.')[1]), false, 'Inner invitation secret must not travel through signaling');
       }
       assert(signalingSockets.length >= 2, 'Both players must register with the signaling service');
       await Promise.all(signalingSockets.filter(socket => !socket.isClosed())

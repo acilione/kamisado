@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, safeStorage, shell, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, net, safeStorage, shell, type IpcMainInvokeEvent } from 'electron';
 import squirrelStartup from 'electron-squirrel-startup';
 import path from 'path';
 import { pathToFileURL } from 'url';
@@ -6,11 +6,13 @@ import { pathToFileURL } from 'url';
 import { setPublicOrigin, startServer } from '../server/index.js';
 import { DirectConnectivityProvider } from './connectivity/direct-provider.js';
 import { NgrokConnectivityProvider } from './connectivity/ngrok-provider.js';
+import { CloudflareConnectivityProvider } from './connectivity/cloudflare-provider.js';
 import { ConnectivityProviderManager } from './connectivity/provider-manager.js';
 import { HostingController, validateStartRequest } from './hosting-controller.js';
 import { TokenVault } from './token-vault.js';
 import { normalizeGameInvitation } from '../shared/invitation-url.js';
 import { normalizePeerInvitation } from '../shared/peer-invitation.js';
+import { createMeteredCredential } from '../shared/turn-provider.js';
 
 const DEFAULT_DESKTOP_PORT = 32145;
 let controlWindow: BrowserWindow | null = null;
@@ -102,6 +104,22 @@ function requireTrustedShell(event: IpcMainInvokeEvent): HostingController {
 }
 
 function registerIpcHandlers(): void {
+    ipcMain.handle('turn:create-credential', async (event, request: unknown) => {
+        const controller = requireTrustedShell(event);
+        if (controller.getState().peerMode !== 'host') throw new Error('Only the host can create relay credentials.');
+        try {
+            const relay = await createMeteredCredential(request, async input => {
+                const response = await fetch(input.url, { method: input.method, redirect: 'error',
+                    signal: AbortSignal.timeout(15000), headers: { 'Content-Type': 'application/json' },
+                    ...(input.data ? { body: JSON.stringify(input.data) } : {}) });
+                return { status: response.status, data: await response.text() };
+            });
+            return { success: true, relay };
+        } catch (error) {
+            // Expected provider failures are data, avoiding Electron's remote-method error wrapper.
+            return { success: false, message: error instanceof Error ? error.message : 'Could not create TURN credentials.' };
+        }
+    });
     ipcMain.handle('game:take-invitation', event => {
         requireTrustedShell(event);
         invitationListenerReady = true;
@@ -115,7 +133,7 @@ function registerIpcHandlers(): void {
     ipcMain.handle('settings:forget-ngrok-token', event => requireTrustedShell(event).forgetToken());
     ipcMain.handle('clipboard:write', (event, value: unknown) => {
         requireTrustedShell(event);
-        if (typeof value !== 'string' || value.length > 4096) throw new Error('Invalid clipboard value.');
+        if (typeof value !== 'string' || value.length > 16384) throw new Error('Invalid clipboard value.');
         clipboard.writeText(value);
     });
     ipcMain.handle('external:open', async (event, value: unknown) => {
@@ -131,7 +149,17 @@ function registerIpcHandlers(): void {
     });
 }
 
-if (squirrelStartup || !app.requestSingleInstanceLock()) {
+// Windows cannot launch Chromium's sandboxed subprocesses from the WSL/UNC share.
+// Explain the remedy before creating a window, rather than crashing invisibly.
+const windowsNetworkPath = process.platform === 'win32' &&
+    process.execPath.startsWith('\\\\') && !/^\\\\\?\\[a-z]:\\/i.test(process.execPath);
+if (windowsNetworkPath) {
+    dialog.showErrorBox('Move Kamisado to a Windows folder',
+        'Kamisado cannot start from a WSL or network folder.\n\n' +
+        'Copy the entire Kamisado folder to your Windows Downloads or Desktop folder, then open Kamisado.exe there. ' +
+        'If you have the portable ZIP, extract it there first. Keep all of its files together.\n\nNo installation is required.');
+    app.quit();
+} else if (squirrelStartup || !app.requestSingleInstanceLock()) {
     app.quit();
 } else {
     app.on('second-instance', (_event, argv) => {
@@ -158,6 +186,9 @@ if (squirrelStartup || !app.requestSingleInstanceLock()) {
             manager: new ConnectivityProviderManager({
                 direct: () => new DirectConnectivityProvider(),
                 ngrok: () => new NgrokConnectivityProvider(),
+                cloudflare: () => new CloudflareConnectivityProvider(path.join(app.getPath('userData'), 'cloudflared'), () => {
+                    void hosting?.stop().then(() => controlWindow?.webContents.send('hosting:tunnel-stopped'));
+                }, (url, options) => net.fetch(url, options)),
             }),
             startServer, setPublicOrigin, port: requestedPort(), vault, savedToken,
         });

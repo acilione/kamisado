@@ -8,11 +8,13 @@ import { InvitationPanel } from './invitation.js';
 import { connectGameSocket } from './transport.js';
 import { PeerPanel } from './peer-panel.js';
 import { normalizePeerInvitation } from '../shared/peer-invitation.js';
+import { installTunnelPanel } from './tunnel-panel.js';
 
 const requestedPeerMode = new URLSearchParams(window.location.search).get('peer');
 const peer = requestedPeerMode === 'host' || requestedPeerMode === 'guest' ? new PeerPanel(requestedPeerMode) : null;
 peer?.updateGame(null);
 const socket = peer?.role === 'guest' ? peer.transport.getGuestSocket() : connectGameSocket();
+const prepareTunnel = installTunnelPanel();
 
 // State
 let gameId: string | null = null;
@@ -176,6 +178,11 @@ function getGameIdFromUrl(): string | null {
 }
 
 function sessionUrl(path: string): string {
+    if (prepareTunnel && !window.__KAMISADO_MOBILE__) {
+        const url = new URL(path, window.location.origin);
+        url.searchParams.set('hosting', 'tunnel');
+        return url.pathname + url.search;
+    }
     if (window.__KAMISADO_MOBILE__) {
         const url = new URL(path, window.location.href);
         if (peer) url.searchParams.set('peer', peer.role);
@@ -252,8 +259,25 @@ document.getElementById('play-computer-btn')!.addEventListener('click', () => {
     createGame('computer');
 });
 document.getElementById('create-btn')!.addEventListener('click', () => createGame('human'));
-function createGame(opponent: 'computer' | 'human'): void {
-    if (!connectionReady || hostStopped || peer?.role === 'guest') return;
+let preparingGame = false;
+async function createGame(opponent: 'computer' | 'human'): Promise<void> {
+    if (!connectionReady || hostStopped || peer?.role === 'guest' || preparingGame) return;
+    if (opponent === 'human' && (peer || prepareTunnel)) {
+        preparingGame = true;
+        const controls = [...document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('#create-game-options input, #create-game-options select, #create-game-options button')];
+        const disabled = controls.map(control => control.disabled);
+        controls.forEach(control => { control.disabled = true; });
+        try {
+            if (prepareTunnel) invitation.setOrigin(await prepareTunnel());
+            else await peer!.prepareGame();
+        }
+        catch { return; }
+        finally {
+            controls.forEach((control, index) => { control.disabled = disabled[index]; });
+            preparingGame = false;
+        }
+        if (!connectionReady || hostStopped) return;
+    }
     opponentSelect.value = opponent;
     socket.emit('createGame', {
         opponent: opponentSelect.value === 'computer' ? 'computer' : 'human',
