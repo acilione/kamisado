@@ -79,7 +79,7 @@ async function main() {
   await fs.access(executable);
   if (process.platform !== 'darwin') {
     const guide = await fs.readFile(path.join(path.dirname(executable), 'START-HERE.txt'), 'utf8');
-    assert.match(guide, /Host Internet game/);
+    assert.match(guide, /Share link/);
     assert.match(guide, /Host a LAN game/);
   }
   const screenshots = path.join(root, 'out/browser-checks');
@@ -123,14 +123,18 @@ async function main() {
     shell.on('pageerror', error => errors.push(error.message));
     assert.equal(await app.evaluate(({ app }) => app.isPackaged), true, 'must test the packaged app');
     assert.equal(await app.evaluate(() => process.versions.electron), require('../package.json').devDependencies.electron, 'packaged runtime must match the pinned Electron version');
+    await shell.frameLocator('#game-frame').locator('#create-btn').waitFor();
+    await shell.frameLocator('#game-frame').locator('#join-peer-btn').waitFor();
+    assert.equal(await shell.frameLocator('#game-frame').locator('#play-computer-btn').isVisible(), true, 'Game settings precede both play actions');
+    assert.equal(await shell.frameLocator('#game-frame').locator('#join-peer-btn').isVisible(), true, 'Joining is available from the settings menu');
+    await shell.locator('#hosting-settings').click();
     await shell.locator('#lan-button').waitFor({ state: 'visible' });
-    assert.equal(await shell.locator('#peer-host-button').isVisible(), true, 'direct Internet hosting must be discoverable');
-    assert.equal(await shell.locator('#peer-join-button').isVisible(), true, 'direct Internet joining must be discoverable');
     assert.equal(await shell.locator('#join-invitation').isVisible(), true, 'a LAN guest can paste a complete invitation');
     assert.equal(await shell.locator('#online-button').isVisible(), false, 'the optional ngrok relay stays inside connection options');
     const initial = await shell.evaluate(() => window.kamisadoDesktop.getState());
-    assert.equal(initial.status, 'idle');
-    assert.equal(initial.port, 0, 'launching the app must not expose a server before hosting starts');
+    assert.equal(initial.status, 'ready');
+    assert.equal(initial.localOnly, false, 'initial game settings prepare the reusable network server');
+    assert.equal(initial.connectivity.mode, 'direct', 'opening settings must not start an Internet tunnel');
 
     console.log('Packaged smoke: waiting for host window to show');
     await bounded(app.evaluate(async ({ BrowserWindow }) => {
@@ -170,14 +174,7 @@ async function main() {
     assert.equal(await host.locator('#share-qr').evaluate(canvas => canvas.width > 0 && canvas.height > 0), true);
 
     await shell.screenshot({ path: path.join(screenshots, 'packaged-invitation.png') });
-    console.log('Packaged smoke: render board modes and symbols');
-    await host.locator('#game-board-view').selectOption('realistic-2d');
-    await host.locator('#game-symbol-mode').check();
-    assert.equal(await host.locator('#board .square-symbol').count(), 128, 'realistic symbol board must load its two markings per square');
-    await host.locator('#game-board-view').selectOption('realistic-3d');
-    await host.locator('#board-3d canvas:visible, #board:visible .realistic-tower').first().waitFor({ state: 'visible' });
-    await shell.screenshot({ path: path.join(screenshots, 'packaged-board.png') });
-    await host.locator('#game-board-view').selectOption('realistic-2d');
+    assert.equal(await host.locator('#board-container').isVisible(), false, 'the lobby must show invitations without the board');
 
     console.log('Packaged smoke: reconfigure invitation without reloading the room');
     const gameDocument = shell.frames().find(frame => frame.url().startsWith(state.localOrigin + '/'));
@@ -213,6 +210,14 @@ async function main() {
     await guest.locator('#board .cell').first().waitFor({ state: 'visible' });
     await host.locator('#turn-indicator').filter({ hasText: /Turn: BLACK/i }).waitFor({ state: 'visible' });
     assert.equal(await guest.locator('#board .cell').count(), 64, 'guest must load the bundled game from the invitation');
+    console.log('Packaged smoke: render board modes and symbols');
+    await host.locator('#game-board-view').selectOption('realistic-2d');
+    await host.locator('#game-symbol-mode').check();
+    assert.equal(await host.locator('#board .square-symbol').count(), 128, 'realistic symbol board must load its two markings per square');
+    await host.locator('#game-board-view').selectOption('realistic-3d');
+    await host.locator('#board-3d canvas:visible, #board:visible .realistic-tower').first().waitFor({ state: 'visible' });
+    await shell.screenshot({ path: path.join(screenshots, 'packaged-board.png') });
+    await host.locator('#game-board-view').selectOption('realistic-2d');
     await host.locator('.cell[data-r="0"][data-c="0"]').click();
     await host.locator('.cell[data-r="1"][data-c="0"]').click();
     await guest.locator('.cell[data-r="1"][data-c="0"] .piece.black').waitFor({ state: 'visible' });
@@ -253,11 +258,11 @@ async function main() {
     for (const [button, role] of [['#peer-host-button', 'host'], ['#peer-join-button', 'guest']]) {
       await shell.locator(button).click();
       const peerPage = shell.frameLocator('#game-frame');
-      await peerPage.locator('#peer-panel').waitFor({ state: 'visible' });
+      await peerPage.locator(role === 'host' ? '#create-btn' : '#peer-panel').waitFor({ state: 'visible' });
       assert.equal(await peerPage.locator('#peer-title').textContent(), role === 'host' ? 'Host an Internet game' : 'Join an Internet game');
       assert.equal(await peerPage.locator('#peer-generate').isDisabled(), true, 'codes require a created game or a pasted invitation');
       assert.equal(await peerPage.locator('#peer-outgoing').inputValue(), '', 'starting a peer session must not contact STUN or generate a code automatically');
-      assert.match(await peerPage.locator('#peer-code-help').textContent(), /STUN/);
+        assert.match(await peerPage.locator('#peer-code-help').textContent(), /Keep both apps open/);
       const peer = await shell.evaluate(() => window.kamisadoDesktop.getState());
       assert.equal(peer.status, 'ready');
       assert.equal(peer.localOnly, true, 'the bundled peer page must only listen on loopback');
@@ -289,6 +294,10 @@ async function main() {
         await peerPage.locator('#board-view').selectOption('realistic-2d');
         await peerPage.locator('#create-btn').click();
         await peerPage.locator('#game-screen').waitFor({ state: 'visible' });
+        for (const page of [peerPage, peerGuest]) {
+          await page.locator('#peer-advanced > summary').click();
+          await page.locator('#peer-method').selectOption('manual');
+        }
         assert.equal(await peerPage.locator('#invite-panel').isVisible(), false, 'peer games share codes, not localhost links');
         await peerPage.locator('#peer-generate').click();
         const peerFrame = shell.frames().find(frame => frame.url().startsWith(peer.localOrigin + '/'));
@@ -313,7 +322,7 @@ async function main() {
         await shell.screenshot({ path: path.join(screenshots, 'packaged-peer-game.png') });
       }
       await shell.locator('#hosting-settings').click();
-      assert.equal(await shell.locator('#setup-panel').isVisible(), false, 'peer settings cannot switch the connection underneath the game');
+      assert.equal(await shell.locator('#setup-panel').isVisible(), role === 'guest', 'connection options are hidden during an active match');
       assert.match(await shell.locator('#status-description').textContent(), /directly to your friend/);
       await shell.locator('#stop-hosting').click();
       await shell.locator('#confirm-stop').click();
@@ -340,7 +349,7 @@ async function main() {
     assert.equal(await solo.locator('#ai-level option').count(), 10, 'all ten difficulty levels must be available in the package');
     await solo.locator('#color-mode').selectOption('white');
     await solo.locator('#ai-level').selectOption('10');
-    await solo.locator('#create-btn').click();
+    await solo.locator('#play-computer-btn').click();
     await solo.locator('#computer-status').filter({ hasText: 'Level 10' }).waitFor({ state: 'visible' });
     await solo.locator('.cell:not([data-r="0"]):not([data-r="7"]) .piece.black').first().waitFor({ state: 'visible' });
     assert.equal(await solo.locator('#share-link').isVisible(), false, 'computer games must not offer invitations');
@@ -362,13 +371,14 @@ async function main() {
     assert.equal(offlineRestarted.localOnly, true);
     await solo.locator('#color-mode').selectOption('white');
     await solo.locator('#ai-level').selectOption('10');
-    await solo.locator('#create-btn').click();
+    await solo.locator('#play-computer-btn').click();
     await solo.locator('#computer-status').filter({ hasText: 'Thinking' }).waitFor({ state: 'visible' });
     await bounded(app.close(), 10000, 'quit while a packaged computer worker is searching');
     app = null;
     await assertPortClosed(offlineRestarted.port, 'Quitting must close the offline game listener and its search worker');
 
     const localOrigins = new Set([
+      initial.localOrigin,
       state.localOrigin, state.connectivity.publicOrigin, restarted.localOrigin, restarted.connectivity.publicOrigin,
       offline.localOrigin, offlineRestarted.localOrigin,
       ...peerOrigins,

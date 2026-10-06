@@ -254,6 +254,14 @@ select:focus-visible {
 }
 
 /* Game Board */
+#game-screen.waiting-for-opponent #board-container,
+#game-screen.waiting-for-opponent #board-options,
+#game-screen.waiting-for-opponent #camera-controls,
+#game-screen.waiting-for-opponent #view-notice,
+#game-screen.waiting-for-opponent #timer-container {
+    display: none;
+}
+
 #board-container {
     display: flex;
     justify-content: center;
@@ -612,3 +620,53 @@ select:focus-visible {
 #peer-panel button { margin: 8px 0; padding: 9px 12px; font-size: 0.9rem; }
 #peer-status { color: #c4d7ff; min-height: 1.5em; }
 #peer-code-help { margin: 12px 0 0; }
+#peer-quick input { width: 100%; box-sizing: border-box; padding: 10px; font: inherit; }
+#peer-quick input, #peer-relay-fields input, #peer-method, #peer-relay-mode,
+#turn-provider input:not([type="checkbox"]), #turn-provider select {
+    border: 1px solid #687080;
+    border-radius: 6px;
+    background: #15171c;
+    color: #e6e9ef;
+}
+#peer-method { padding: 8px; font: inherit; }
+#peer-quick-outgoing { font-family: monospace; }
+#peer-advanced { margin: 12px 0; }
+.game-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.game-actions button { flex: 1 1 160px; margin: 0; }
+#turn-provider { margin-top: 16px; text-align: left; }
+#turn-provider summary { cursor: pointer; color: #c4d7ff; }
+#turn-provider label { display: block; margin-top: 10px; }
+#turn-provider input:not([type="checkbox"]), #turn-provider select { width: 100%; box-sizing: border-box; margin: 5px 0; }
+#app-join-link { width: 100%; box-sizing: border-box; }
+#peer-relay { margin-top: 12px; }
+#peer-relay-fields { min-width: 0; margin: 12px 0; border: 1px solid #465067; border-radius: 6px; }
+#peer-relay-fields input { width: 100%; box-sizing: border-box; }
+#peer-relay-fields:disabled { opacity: 0.6; }
+
+/* Shared touch layout, including browser guests on phones. */
+body {
+    min-height: 100svh;
+    padding: max(16px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+        max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+}
+button, select, summary, .cell { touch-action: manipulation; }
+@media (pointer: coarse) {
+    button, select, summary { min-height: 44px; }
+    input:not([type="checkbox"]), select, #peer-panel textarea { font-size: 16px; }
+    .symbol-toggle { min-height: 44px; }
+    #leave-computer-btn, #reset-camera { min-height: 44px; }
+}
+.mobile-app { flex-direction: column; justify-content: flex-start; }
+#mobile-home { width: 100%; max-width: 440px; text-align: center; margin: auto; }
+#mobile-home .menu-group { width: 100%; }
+#mobile-home details { margin-top: 22px; text-align: left; }
+#mobile-home summary { cursor: pointer; color: #c7cad3; display: flex; align-items: center; }
+#mobile-home input { width: 100%; }
+.mobile-footnote { font-size: 0.8rem; color: #a4a8b3; line-height: 1.5; }
+#mobile-error { color: #f1dfb6; font-size: 0.9rem; }
+.mobile-session { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; color: #bac1ce; font-size: 0.8rem; }
+#mobile-home-button { width: auto; margin: 0; padding: 10px 12px; background: transparent; border: 1px solid #ffffff30; font-size: 0.85rem; }
+@media (max-width: 600px) {
+    .mobile-app #peer-panel { padding: 12px; }
+    #peer-panel textarea { font-size: 16px; }
+}

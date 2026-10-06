@@ -1,76 +1,47 @@
-const { createHash } = require('node:crypto');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { prepareDestination, writeChecksums } = require('./release-files.cjs');
 
-async function findDownloads(directory) {
-  const files = [];
-  for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
-    const file = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...await findDownloads(file));
-    else if (entry.isFile() && (/\.(exe|zip|deb|rpm|nupkg)$/i.test(entry.name) || entry.name === 'RELEASES')) files.push(file);
-  }
-  return files.sort();
-}
+const platforms = { win32: 'Windows', linux: 'Linux', darwin: 'macOS' };
 
-async function collectDownloads({
-  source = 'out/make',
-  destination = 'out/release',
-  platform = process.platform,
-  arch = process.arch,
-  formats,
-} = {}) {
-  source = path.resolve(source);
-  destination = path.resolve(destination);
-  const downloads = await findDownloads(source);
-  const defaults = platform === 'win32' ? ['exe', 'zip'] : platform === 'linux' ? ['zip', 'deb', 'rpm'] : ['zip'];
-  const requested = formats ?? defaults;
-  if (!Array.isArray(requested) || !requested.length || requested.some(format => !['exe', 'zip', 'deb', 'rpm'].includes(format))) {
-    throw new Error('Download formats must be a non-empty list of exe, zip, deb, or rpm');
-  }
-  const required = requested.map(format => `.${format}`);
-  for (const extension of required) {
-    if (!downloads.some(file => file.toLowerCase().endsWith(extension))) {
-      throw new Error(`Missing ${extension} download in ${source}`);
-    }
-  }
-
-  const guideName = `START-HERE-${platform}-${arch}.txt`;
-  const checksumName = `SHA256SUMS-${platform}-${arch}.txt`;
-  const names = new Set([guideName.toLowerCase(), checksumName.toLowerCase()]);
-  for (const file of downloads) {
-    const name = path.basename(file);
-    if (names.has(name.toLowerCase())) throw new Error(`Duplicate download name: ${name}`);
-    names.add(name.toLowerCase());
-  }
-
-  // Never silently mix older builds with this release's checksums.
-  await fs.mkdir(destination, { recursive: true });
-  if ((await fs.readdir(destination)).length) throw new Error(`Release output must be empty: ${destination}`);
-  const checksums = [];
-  for (const file of downloads) {
-    const name = path.basename(file);
-    const bytes = await fs.readFile(file);
-    await fs.writeFile(path.join(destination, name), bytes);
-    checksums.push(`${createHash('sha256').update(bytes).digest('hex')}  ${name}`);
-  }
-  const guide = await fs.readFile(path.join(__dirname, '..', 'desktop', 'START-HERE.txt'));
-  await fs.writeFile(path.join(destination, guideName), guide);
-  checksums.push(`${createHash('sha256').update(guide).digest('hex')}  ${guideName}`);
-  await fs.writeFile(path.join(destination, checksumName), `${checksums.join('\n')}\n`);
-  return { downloads: downloads.length, guideName, checksumName, destination };
+// Forge's ZIP includes the complete Electron runtime, not just the executable.
+async function collectDownloads({ platform = process.platform, arch = process.arch,
+  source, destination, application, version = require('../package.json').version } = {}) {
+  const label = platforms[platform];
+  if (!label) throw new Error(`Unsupported desktop platform: ${platform}`);
+  if (!/^(x64|arm64)$/.test(arch) || !/^[\w.-]+$/.test(version)) throw new Error('Invalid architecture or version');
+  source = path.resolve(source ?? `out/make/zip/${platform}/${arch}`);
+  application = path.resolve(application ?? `out/Kamisado-${platform}-${arch}`);
+  destination = path.resolve(destination ?? `out/release/${label}-desktop`);
+  const archive = `Kamisado-${platform}-${arch}-${version}.zip`;
+  const executable = platform === 'darwin' ? 'Kamisado.app/Contents/MacOS/Kamisado'
+    : platform === 'win32' ? 'Kamisado.exe' : 'Kamisado';
+  // Validate everything before creating output. Never collect stale installers.
+  await fs.access(path.join(source, archive));
+  await fs.access(path.join(application, executable));
+  await fs.access(path.join(application, platform === 'darwin' ? 'Kamisado.app/Contents/Resources/app.asar' : 'resources/app.asar'));
+  const guide = await fs.readFile(path.join(__dirname, '../desktop/START-HERE.txt'));
+  await prepareDestination(destination, [source, application]);
+  const downloadName = `Kamisado-${version}-${label}-${arch}-portable.zip`;
+  const guideName = `START-HERE-${label}-${arch}.txt`;
+  const checksumName = `SHA256SUMS-${label}-${arch}.txt`;
+  await fs.copyFile(path.join(source, archive), path.join(destination, downloadName));
+  await fs.cp(application, path.join(destination, 'Kamisado'), { recursive: true, verbatimSymlinks: true });
+  const launch = `Kamisado/${platform === 'darwin' ? 'Kamisado.app' : executable}`;
+  await fs.writeFile(path.join(destination, guideName),
+    `Kamisado for ${label} (${arch})\n\nPlay now: open ${launch}\nShare: send ${downloadName}\nNo installation is required. Extract the whole ZIP before opening the app.\nKeep all files in the Kamisado folder together.\n\n${guide}`);
+  await writeChecksums(destination, [downloadName, guideName], checksumName);
+  return { downloads: 1, destination, downloadName, guideName, checksumName };
 }
 
 module.exports = { collectDownloads };
 
 if (require.main === module) {
-  const [source, destination, formatsFlag, ...extra] = process.argv.slice(2);
-  if (extra.length || (formatsFlag && !formatsFlag.startsWith('--formats='))) {
-    console.error('Usage: node scripts/collect-desktop-artifacts.cjs [source] [destination] [--formats=zip,deb]');
+  const [source, destination, arch, ...extra] = process.argv.slice(2);
+  if (extra.length) {
+    console.error('Usage: node scripts/collect-desktop-artifacts.cjs [zip-directory] [destination] [x64|arm64]');
     process.exitCode = 1;
-  } else collectDownloads({ source, destination, formats: formatsFlag?.slice('--formats='.length).split(',') }).then(result => {
-    console.log(`Collected ${result.downloads} downloads, ${result.guideName}, and ${result.checksumName} in ${result.destination}`);
-  }).catch(error => {
-    console.error(error.message);
-    process.exitCode = 1;
-  });
+  } else collectDownloads({ source, destination, arch }).then(result => {
+    console.log(`Portable application, ZIP, instructions, and checksums: ${result.destination}`);
+  }).catch(error => { console.error(error.message); process.exitCode = 1; });
 }

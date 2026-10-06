@@ -211,7 +211,7 @@ async function assertFitsViewport(page) {
 
 // Project a cell in the documented default camera view, then exercise the real
 // pointer/raycast path. No renderer internals or application test hooks are used.
-async function click3DCell(page, r, c, black, tower) {
+async function click3DCell(page, r, c, black, tower, touch = false) {
   const { PerspectiveCamera, Vector3 } = await import('three');
   const box = await page.locator('#board-3d canvas').boundingBox();
   assert.ok(box, 'the 3D board must be visible for pointer input');
@@ -221,7 +221,56 @@ async function click3DCell(page, r, c, black, tower) {
   camera.updateMatrixWorld();
   const facing = black ? -1 : 1;
   const point = new Vector3((c - 3.5) * facing, tower ? 0.727 : 0.239, (r - 3.5) * facing).project(camera);
-  await page.mouse.click(box.x + (point.x + 1) * box.width / 2, box.y + (1 - point.y) * box.height / 2);
+  const x = box.x + (point.x + 1) * box.width / 2;
+  const y = box.y + (1 - point.y) * box.height / 2;
+  if (touch) await page.touchscreen.tap(x, y);
+  else await page.mouse.click(x, y);
+}
+
+async function assertWrongColorInput(browser, origin) {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
+  try {
+    const page = await context.newPage();
+    const dialogs = [];
+    page.on('dialog', async dialog => { dialogs.push(dialog.message()); await dialog.accept(); });
+    await page.goto(origin + '/game/' + initialState.id);
+    const state = structuredClone(initialState);
+    state.requiredColor = state.board[0][3].color;
+    for (const view of ['realistic-2d', 'realistic-3d']) {
+      await page.evaluate(state => {
+        window.__boardFixture.moves.length = 0;
+        window.__boardFixture.dispatch('gameStateUpdate', state);
+      }, state);
+      await page.locator('#game-board-view').selectOption(view);
+      const tap = async (r, c, tower) => {
+        if (view === 'realistic-3d') {
+          await page.locator('#board-3d canvas').scrollIntoViewIfNeeded();
+          await click3DCell(page, r, c, true, tower, true);
+        } else await page.locator(`.cell[data-r="${r}"][data-c="${c}"]`).tap();
+      };
+      for (const alreadySelected of [false, true]) {
+        if (alreadySelected) await tap(0, 3, true);
+        const before = dialogs.length;
+        await tap(0, 4, true);
+        assert.deepEqual(dialogs.slice(before), [`You have to move the ${state.requiredColor} piece.`],
+          view + ': tapping a wrong-color tower must explain the required color');
+        await tap(1, 5, false);
+        assert.deepEqual(await page.evaluate(() => window.__boardFixture.moves), [],
+          view + ': a wrong-color tap must clear the previous selection');
+        assert.equal(await page.locator('.cell.selected').count(), 0);
+      }
+      await tap(0, 3, true);
+      await tap(1, 3, false);
+      assert.deepEqual(await page.evaluate(() => window.__boardFixture.moves), [{
+        gameId: initialState.id, move: { fromR: 0, fromC: 3, toR: 1, toC: 3 },
+      }], view + ': the required tower remains playable after a rejected selection');
+      if (view === 'realistic-3d') {
+        assert.equal(await page.locator('#board-3d canvas').evaluate(canvas => getComputedStyle(canvas).webkitTapHighlightColor),
+          'rgba(0, 0, 0, 0)', 'Touching the 3D board must not flash a WebView highlight over the whole canvas');
+      }
+    }
+  } finally { await context.close(); }
+  console.log('Touch selection checks passed in 2D and 3D: required color, stale selection, and canvas highlight.');
 }
 
 async function assert3DInput(browser, origin, errors, color) {
@@ -371,6 +420,7 @@ async function run() {
 
     await assert3DInput(browser, origin, errors, 'black');
     await assert3DInput(browser, origin, errors, 'white');
+    await assertWrongColorInput(browser, origin);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#game-board-view').selectOption('realistic-2d');
@@ -386,6 +436,20 @@ async function run() {
     await page.locator('#game-board-view').selectOption('realistic-2d');
     await assertFitsViewport(page);
     await page.screenshot({ path: path.join(screenshots, 'realistic-2d-narrow-mobile.png'), fullPage: true });
+    for (const view of ['realistic-2d', 'realistic-3d']) {
+      await page.locator('#game-board-view').selectOption(view);
+      await page.evaluate(state => window.__boardFixture.dispatch('gameStateUpdate', {
+        ...state, roundState: 'waiting_start',
+      }), initialState);
+      for (const selector of ['#board-container', '#board-options', '#camera-controls']) {
+        assert.equal(await page.locator(selector).isVisible(), false, view + ': the lobby hides board controls');
+      }
+      assert.equal(await page.locator('#board-3d canvas').count(), 0, 'the lobby must not keep a WebGL renderer alive');
+      await page.evaluate(state => window.__boardFixture.dispatch('gameStateUpdate', state), initialState);
+      assert.equal(await page.locator('#board-container').isVisible(), true);
+      if (view === 'realistic-3d') await assertWebGLCanvas(page, 'realistic-3d-after-lobby.png');
+      else await assert2DBoard(page, true);
+    }
     await context.close();
 
     const fallback = await browser.newContext();

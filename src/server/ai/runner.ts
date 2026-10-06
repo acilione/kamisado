@@ -1,18 +1,9 @@
 import path from 'path';
 import { Worker } from 'worker_threads';
-import type { GameSettings, GameState, MoveData } from '../../shared/types.js';
+import type { MoveData } from '../../shared/types.js';
 
-interface SearchRequest {
-    state: GameState;
-    settings: GameSettings;
-    level: number;
-    maxTimeMs: number;
-}
-
-export interface ComputerTask {
-    result: Promise<MoveData | null>;
-    cancel(): void;
-}
+import type { ComputerTask, SearchRequest } from '../../shared/computer-task.js';
+export type { ComputerTask } from '../../shared/computer-task.js';
 
 interface Job {
     request: SearchRequest;

@@ -24,6 +24,20 @@ const joinResult = document.getElementById('join-result');
 let currentState = null;
 let busy = false;
 let storagePreferenceInitialized = false;
+let pendingInvitation = null;
+let inGame = false;
+let lastInvitation = null;
+let queuedInvitation = null;
+let joiningInvitation = false;
+let tunnelSetup = true;
+
+function drainInvitation() {
+    if (!busy && !joiningInvitation && queuedInvitation) {
+        const { value } = queuedInvitation;
+        queuedInvitation = null;
+        void joinPeer(value).catch(error => showLocalError(error.message || String(error)));
+    }
+}
 
 function setBusy(value, message = 'Connecting…') {
     busy = value;
@@ -35,6 +49,7 @@ function setBusy(value, message = 'Connecting…') {
     notice.textContent = value ? message : '';
     notice.classList.toggle('hidden', !value);
     launcher.setAttribute('aria-busy', String(value));
+    if (!value) queueMicrotask(drainInvitation);
 }
 
 function showLauncher() {
@@ -48,10 +63,13 @@ function showLauncher() {
 function showGame() {
     if (currentState?.status !== 'ready' || !currentState.localOrigin) return;
     // Keep the same frame alive when changing connectivity or visiting settings.
-    if (gameFrame.dataset.origin !== currentState.localOrigin) {
+    if (gameFrame.dataset.origin !== currentState.localOrigin || (!inGame && gameFrame.dataset.tunnelSetup !== String(tunnelSetup))) {
         gameFrame.dataset.origin = currentState.localOrigin;
+        gameFrame.dataset.tunnelSetup = String(tunnelSetup);
         gameFrame.src = currentState.localOrigin + (currentState.peerMode
-            ? '/?peer=' + currentState.peerMode : (currentState.localOnly ? '/?opponent=computer' : ''));
+            ? '/?peer=' + currentState.peerMode : (currentState.localOnly ? '/?opponent=computer' : (tunnelSetup ? '/?hosting=tunnel' : '')))
+            + (pendingInvitation ? '#' + pendingInvitation : '');
+        pendingInvitation = null;
     }
     launcher.classList.add('hidden');
     gamePanel.classList.remove('hidden');
@@ -88,6 +106,11 @@ async function startHosting(request) {
     setBusy(true, request.peerMode ? 'Preparing your Internet game…' : (request.localOnly ? 'Preparing your game…' : 'Connecting…'));
     errorPanel.classList.add('hidden');
     try {
+        if (currentState?.status === 'ready' && ((request.localOnly === true) !== currentState.localOnly ||
+            request.peerMode !== currentState.peerMode)) {
+            if (inGame && !confirm('Leave the current game and change connection?')) return;
+            render(await api.stopHosting());
+        }
         const state = await api.startHosting(request);
         render(state);
         if (state.status === 'ready' && !state.error && !hasNoNetworkAddress(state)) showGame();
@@ -100,13 +123,32 @@ async function startHosting(request) {
     }
 }
 
+async function joinPeer(invitation) {
+    if (invitation && (typeof invitation !== 'string' || invitation.length > 16384 ||
+        !/^(?:K2R?\.[A-Za-z0-9_-]{21}[AQgw]|K3\.[A-Za-z0-9_-]+)$/.test(invitation))) {
+        showLocalError('This is not a valid Kamisado invitation.');
+        return;
+    }
+    if (busy || joiningInvitation) { queuedInvitation = { value: invitation }; return; }
+    if (invitation && invitation === lastInvitation && inGame) return;
+    if (inGame && !confirm('Leave the current game and join your friend?')) return;
+    joiningInvitation = true;
+    try {
+        inGame = false;
+        if (currentState?.status === 'ready') render(await api.stopHosting());
+        pendingInvitation = invitation || null;
+        lastInvitation = invitation || null;
+        await startHosting({ mode: 'direct', localOnly: true, peerMode: 'guest' });
+    } finally { joiningInvitation = false; drainInvitation(); }
+}
+
 function isLoopbackOrigin(origin) {
     const hostname = new URL(origin).hostname;
     return hostname === 'localhost' || hostname === '[::1]' || hostname.startsWith('127.');
 }
 
 function hasNoNetworkAddress(state) {
-    return !state.localOnly && state.connectivity?.mode === 'direct'
+    return !tunnelSetup && !state.localOnly && state.connectivity?.mode === 'direct'
         && state.connectivity.reachableOrigins.every(isLoopbackOrigin);
 }
 
@@ -160,6 +202,7 @@ function renderOrigins(origins) {
 function render(state) {
     currentState = state;
     const ready = state.status === 'ready' && Boolean(state.connectivity);
+    if (!ready) inGame = false;
     const localSession = ready && state.localOnly;
     const peer = ready && Boolean(state.peerMode);
     const offline = localSession && !peer;
@@ -191,14 +234,14 @@ function render(state) {
     errorPanel.textContent = state.error || '';
     statusPanel.classList.toggle('hidden', !ready);
     toolbar.classList.toggle('hidden', !ready);
-    document.getElementById('setup-panel').classList.toggle('hidden', localSession);
+    document.getElementById('setup-panel').classList.toggle('hidden', localSession && inGame);
     computerButton.classList.toggle('hidden', ready);
     peerHostButton.classList.toggle('hidden', ready);
     peerJoinButton.classList.toggle('hidden', ready);
     document.getElementById('peer-help').classList.toggle('hidden', ready);
     document.querySelector('.connection-details').classList.toggle('hidden', localSession);
     document.getElementById('switch-hint').classList.toggle('hidden', !ready || localSession);
-    settingsButton.textContent = localSession ? 'Session' : 'Connection';
+    settingsButton.textContent = 'Connection';
     document.getElementById('session-hint').textContent = offline
         ? 'Offline play' : 'Keep this app open and this computer awake.';
     document.getElementById('status-title').textContent = peer ? 'Your Internet game' : (offline ? 'Your computer game' : (state.connectivity?.title || 'Hosting is active'));
@@ -217,12 +260,12 @@ function render(state) {
 
     if (ready) {
         hideTokenSetup();
-        const online = state.connectivity.mode === 'ngrok';
-        document.getElementById('connection-label').textContent = peer ? 'Internet P2P' : (offline ? 'Computer' : (online ? 'ngrok relay' : 'LAN'));
+        const online = state.connectivity.mode !== 'direct';
+        document.getElementById('connection-label').textContent = peer ? 'Internet P2P' : (offline ? 'Computer' : (online ? state.connectivity.mode : (tunnelSetup ? 'Internet setup' : 'LAN')));
         document.getElementById('status-description').textContent = offline
             ? 'This session stays on this computer. To play across devices, end it and choose a connection.' : peer
             ? 'Your app connects directly to your friend. Both players keep their apps open; there is no central game server.' : online
-            ? 'Friends can join over the Internet through ngrok. Keep this app open while they play.'
+            ? state.connectivity.description
             : state.connectivity.description;
         const warning = document.getElementById('warning');
         warning.textContent = state.connectivity.warning || '';
@@ -244,16 +287,22 @@ onlineButton.addEventListener('click', () => {
     }
 });
 computerButton.addEventListener('click', () => startHosting({ mode: 'direct', localOnly: true }));
+document.getElementById('cloudflare-button').addEventListener('click', async () => {
+    tunnelSetup = true;
+    if (currentState?.status === 'ready' && !inGame) render(await api.stopHosting());
+    await startHosting({ mode: 'direct' });
+});
 peerHostButton.addEventListener('click', () => startHosting({ mode: 'direct', localOnly: true, peerMode: 'host' }));
 peerJoinButton.addEventListener('click', () => startHosting({ mode: 'direct', localOnly: true, peerMode: 'guest' }));
-lanButton.addEventListener('click', () => startHosting({
+lanButton.addEventListener('click', () => { tunnelSetup = false; return startHosting({
     mode: 'direct',
     advertisedOrigin: document.getElementById('advertised-origin').value,
-}));
+}); });
 document.getElementById('join-form').addEventListener('submit', async event => {
     event.preventDefault();
     if (busy) return;
     const invitation = joinInvitation.value.trim();
+    if (invitation.startsWith('kamisado://join/')) { await joinPeer(invitation.slice('kamisado://join/'.length)); return; }
     joinInvitation.removeAttribute('aria-invalid');
     joinResult.classList.remove('error');
     joinResult.classList.add('hidden');
@@ -284,6 +333,41 @@ document.getElementById('join-form').addEventListener('submit', async event => {
 // The embedded game has no desktop API access. Only its current local frame
 // may ask the launcher to open a validated invitation in the system browser.
 window.addEventListener('message', async event => {
+    if (event.source === gameFrame.contentWindow && event.origin === currentState?.localOrigin) {
+        if (event.data?.type === 'kamisado:start-tunnel' && Number.isSafeInteger(event.data.requestId)) {
+            const { source, origin } = event;
+            const { requestId, request } = event.data;
+            try {
+                if (busy || currentState.localOnly || !['cloudflare', 'ngrok'].includes(request?.mode)) throw new Error('End the current connection before creating an Internet game.');
+                setBusy(true, 'Preparing your invitation…');
+                const state = await api.startHosting({ mode: request.mode, authToken: request.authToken });
+                render(state);
+                if (state.error || state.connectivity?.mode !== request.mode) throw new Error(state.error || 'Could not connect the tunnel.');
+                source.postMessage({ type: 'kamisado:tunnel-result', requestId, success: true, origin: state.connectivity.publicOrigin }, origin);
+            } catch (error) {
+                source.postMessage({ type: 'kamisado:tunnel-result', requestId, success: false, message: error.message }, origin);
+            } finally { setBusy(false); }
+            return;
+        }
+        if (event.data?.type === 'kamisado:create-turn' && Number.isSafeInteger(event.data.requestId)) {
+            const { source, origin } = event;
+            const requestId = event.data.requestId;
+            try {
+                if (currentState.peerMode !== 'host') throw new Error('Only the host can create relay credentials.');
+                const relay = await api.createTurnCredential(event.data.request);
+                if (source === gameFrame.contentWindow && origin === currentState?.localOrigin) source.postMessage({ type: 'kamisado:turn-result', requestId, success: true, relay }, origin);
+            } catch (error) {
+                source.postMessage({ type: 'kamisado:turn-result', requestId, success: false, message: error.message }, origin);
+            }
+            return;
+        }
+        if (event.data?.type === 'kamisado:session' && typeof event.data.active === 'boolean') {
+            inGame = event.data.active;
+            document.getElementById('setup-panel').classList.toggle('hidden', currentState.localOnly && inGame);
+            return;
+        }
+        if (event.data?.type === 'kamisado:join-peer') { await joinPeer(event.data.invitation); return; }
+    }
     if (event.source !== gameFrame.contentWindow || event.origin !== currentState?.localOrigin
         || event.data?.type !== 'kamisado:join-invitation' || !Number.isSafeInteger(event.data.requestId)) return;
     const source = event.source;
@@ -367,7 +451,16 @@ document.querySelectorAll('[data-external]').forEach(button => {
 });
 
 setBusy(true, 'Getting ready…');
-api.getState().then(state => {
+api.onInvitation?.(invitation => { void joinPeer(invitation); });
+api.onHostingStopped?.(async () => {
+    render(await api.getState());
+    showLocalError('The Internet tunnel stopped. Create a new game to get a fresh invitation.');
+});
+api.getState().then(async state => {
     render(state);
-    if (state.status === 'ready' && !hasNoNetworkAddress(state)) showGame();
+    const invitation = await api.takeInvitation?.();
+    setBusy(false);
+    if (invitation) await joinPeer(invitation);
+    else if (state.status === 'ready' && !hasNoNetworkAddress(state)) showGame();
+    else await startHosting({ mode: 'direct' });
 }).catch(error => showLocalError(error.message || String(error))).finally(() => setBusy(false));

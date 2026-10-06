@@ -70,7 +70,11 @@ async function run() {
       if (/\/socket\.io\//.test(socket.url())) guestSocketRequests.push(socket.url());
     });
     await Promise.all([host.goto(origin + '/?peer=host'), guest.goto(origin + '/?peer=guest')]);
-    await host.locator('#peer-panel').waitFor();
+    for (const page of [guest]) {
+      await page.locator('#peer-advanced > summary').click();
+      await page.locator('#peer-method').selectOption('manual');
+    }
+    assert.equal(await host.locator('#peer-panel').isVisible(), false);
     await guest.locator('#peer-panel').waitFor();
     assert.equal(await host.locator('#peer-generate').isDisabled(), true, 'The host must create a room before generating an invitation');
     assert.equal(await guest.locator('#peer-generate').isDisabled(), true, 'The guest must paste an invitation first');
@@ -93,6 +97,8 @@ async function run() {
     // while leaving the same page ready to create a different peer game.
     await host.locator('#create-btn').click();
     await host.locator('#game-screen').waitFor();
+    await host.locator('#peer-advanced > summary').click();
+    await host.locator('#peer-method').selectOption('manual');
     const cancelledRoomPath = new URL(host.url()).pathname;
     await host.locator('#peer-generate').click();
     await host.waitForFunction(() => document.getElementById('peer-outgoing').value.length > 100);
@@ -179,6 +185,8 @@ async function run() {
     await host.locator('#create-btn').click();
     await host.locator('#game-screen').waitFor();
     const restartedRoomPath = new URL(host.url()).pathname;
+    await host.locator('#peer-advanced > summary').click();
+    await host.locator('#peer-method').selectOption('manual');
     assert.notEqual(restartedRoomPath, previousRoomPath);
     await host.locator('#peer-generate').click();
     await host.waitForFunction(() => document.getElementById('peer-outgoing').value.length > 100);

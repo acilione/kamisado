@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="Play Kamisado against the computer at ten difficulty levels, or with a friend—no account required.">
     <meta name="theme-color" content="#15171c">
     <title>Kamisado Online</title>
@@ -20,7 +20,41 @@
         <details id="peer-panel" class="hidden" open>
             <summary id="peer-title">Internet P2P connection</summary>
             <p id="peer-instructions"></p>
-            <div id="peer-steps">
+            <div id="peer-connection-preference">
+                <label id="peer-relay-mode-label" for="peer-relay-mode">How to connect
+                    <select id="peer-relay-mode" aria-describedby="peer-relay-help peer-relay-readiness">
+                        <option value="auto">P2P first, TURN if needed</option>
+                        <option value="always">TURN only (skip P2P)</option>
+                    </select>
+                </label>
+                <p id="peer-relay-help" class="option-help"></p>
+                <p id="peer-relay-readiness" class="option-help" role="status"></p>
+            </div>
+            <div id="peer-quick">
+                <div id="peer-quick-host">
+                    <button id="peer-quick-create" type="button">Create invitation</button>
+                    <label for="peer-quick-outgoing">Send this invitation to your friend</label>
+                    <input id="peer-quick-outgoing" type="text" readonly autocomplete="off" spellcheck="false">
+                    <button id="peer-quick-copy" type="button" disabled>Copy invitation</button>
+                    <button id="peer-quick-share" type="button" disabled>Share link</button>
+                </div>
+                <div id="peer-quick-guest">
+                    <label for="peer-quick-incoming">Your friend's invitation</label>
+                    <input id="peer-quick-incoming" type="text" maxlength="16384" placeholder="kamisado://join/…" autocomplete="off" autocapitalize="off" spellcheck="false">
+                    <button id="peer-quick-join" type="button">Join</button>
+                </div>
+                <p class="option-help">PeerJS Cloud exchanges connection details automatically. No account is needed. The game runs on the host's device.</p>
+            </div>
+            <details id="peer-advanced">
+                <summary>Advanced</summary>
+                <label for="peer-method">Connection method</label>
+                <select id="peer-method">
+                    <option value="quick">Quick connect</option>
+                    <option value="manual">Manual code exchange</option>
+                </select>
+                <p class="option-help">Manual exchange works without the public signaling service, but both players must send a code.</p>
+            </details>
+            <div id="peer-steps" class="hidden">
                 <div id="peer-incoming-section">
                     <label id="peer-incoming-label" for="peer-incoming">Your friend’s connection code</label>
                     <textarea id="peer-incoming" rows="3" maxlength="65536" spellcheck="false" autocomplete="off" placeholder="Paste the whole code here"></textarea>
@@ -34,25 +68,64 @@
                 </div>
             </div>
             <p id="peer-status" role="status" aria-live="polite"></p>
-            <p id="peer-code-help" class="option-help">Keep both apps open. Codes connect these two sessions. A public STUN service discovers network addresses; game data travels directly between players. Some routers block direct connections.</p>
+            <details id="peer-relay">
+                <summary>TURN relay settings</summary>
+                <p class="option-help">A TURN service can forward encrypted moves while the game stays on the host's device. No relay service is included.</p>
+                <label><input id="peer-use-relay" type="checkbox" checked> <span id="peer-relay-label">Enable TURN</span></label>
+                <p class="option-help">The host's Quick connect link includes relay access, so the guest joins without entering credentials. Share it privately: anyone with the link can use that access until the provider expires or revokes it.</p>
+                <fieldset id="peer-relay-fields" disabled>
+                    <legend>Credentials from your TURN provider</legend>
+                    <details>
+                        <summary>Import provider settings</summary>
+                        <label for="peer-relay-import">Paste ICE servers JSON</label>
+                        <textarea id="peer-relay-import" rows="3" maxlength="65536" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder='[{"urls":"turns:relay.example.com:443?transport=tcp","username":"…","credential":"…"}]'></textarea>
+                        <button id="peer-relay-import-btn" type="button">Import TURN settings</button>
+                        <p class="option-help">Paste the provider's ICE-server JSON array to fill all three fields at once. STUN entries are ignored. The pasted text is cleared after import.</p>
+                    </details>
+                    <label for="peer-relay-urls">Relay addresses (one per line)</label>
+                    <textarea id="peer-relay-urls" rows="2" maxlength="2048" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="turns:relay.example.com:443?transport=tcp"></textarea>
+                    <label for="peer-relay-username">Username</label>
+                    <input id="peer-relay-username" type="text" maxlength="512" autocomplete="off" autocapitalize="off" spellcheck="false">
+                    <label for="peer-relay-password">Password</label>
+                    <input id="peer-relay-password" type="password" maxlength="2048" autocomplete="off">
+                </fieldset>
+                <p class="option-help">Use the provider's TLS/TCP address when available. These fields accept session credentials, never an account secret key. Quick connect includes session credentials in the private invitation. Manual exchange still needs credentials on both devices.</p>
+            </details>
+            <p id="peer-code-help" class="option-help">Keep both apps open while connecting and playing. Both connection choices use kamisado://join/ links. Changing the host's connection settings requires a new invitation; an automatic TURN retry keeps the same link.</p>
         </details>
         <!-- Menu Screen -->
         <div id="menu-screen">
             <h1>Kamisado</h1>
             <p class="tagline">Color decides your next move.</p>
             <div id="create-game-options" class="menu-group">
-                <h3>Create Game</h3>
-                <label for="opponent">Opponent:
+                <h3>Game settings</h3>
+                <details id="tunnel-options" class="hidden">
+                    <summary>Internet connection</summary>
+                    <label for="tunnel-provider">Invitation service</label>
+                    <select id="tunnel-provider">
+                        <option value="cloudflare">Cloudflare Quick Tunnel — no account</option>
+                        <option value="ngrok">ngrok — host account required</option>
+                    </select>
+                    <p class="option-help">Your friend opens an HTTPS link in their browser. No setup or credentials needed. The game runs on this device; the service forwards the connection.</p>
+                    <p class="option-help">Cloudflare Quick Tunnels are a free testing service with no uptime guarantee. Keep the host app open and the device awake.</p>
+                    <div id="tunnel-ngrok" class="hidden">
+                        <label for="tunnel-token">Host's ngrok authtoken</label>
+                        <input id="tunnel-token" type="password" autocomplete="off" maxlength="2048" placeholder="Paste your token (or use the desktop's saved token)">
+                        <p class="option-help">Get a token from dashboard.ngrok.com. It stays on the host and is never added to invitations. The free plan has usage limits and a browser welcome page.</p>
+                    </div>
+                </details>
+                <p id="tunnel-status" class="option-help" role="status" aria-live="polite"></p>
+                <label for="opponent" class="hidden">Opponent:
                     <select id="opponent">
                         <option value="human">A friend</option>
                         <option value="computer">Computer</option>
                     </select>
                 </label>
-                <div id="computer-options" class="hidden">
-                    <label for="ai-level">Difficulty:
+                <div id="computer-options">
+                    <label for="ai-level">Computer difficulty:
                         <select id="ai-level" aria-describedby="ai-level-help"></select>
                     </label>
-                    <p id="ai-level-help" class="option-help">Ten levels, from forgiving to challenging. Works offline in the desktop app.</p>
+                    <p id="ai-level-help" class="option-help">Ten levels, from forgiving to challenging. Works offline in the desktop and mobile apps.</p>
                 </div>
                 <div class="form-group">
                     <label for="match-type">Match Length:</label>
@@ -98,10 +171,42 @@
                         <input type="checkbox" id="symbol-mode" class="symbol-mode-toggle" role="switch" aria-label="Symbol mode (color-blind friendly)">
                     </label>
                 </div>
-                <button id="create-btn" disabled>Create Game</button>
+                <details id="turn-provider" class="hidden">
+                    <summary>Automatic TURN credentials</summary>
+                    <p class="option-help">Optional Metered / OpenRelay account setup for the host. Create temporary relay access for each new multiplayer game; your friend receives it through the invitation.</p>
+                    <label><input id="turn-provider-enabled" type="checkbox"> Generate credentials when I create a game</label>
+                    <label for="turn-provider-domain">Account domain</label>
+                    <input id="turn-provider-domain" type="text" maxlength="100" placeholder="your-app.metered.live" autocapitalize="off" autocomplete="off" spellcheck="false">
+                    <label for="turn-provider-secret">Account secret key (host only)</label>
+                    <input id="turn-provider-secret" type="password" maxlength="2048" autocomplete="off">
+                    <label for="turn-provider-lifetime">Relay lifetime</label>
+                    <select id="turn-provider-lifetime">
+                        <option value="auto">Estimate from game settings</option>
+                        <option value="3600">1 hour</option>
+                        <option value="7200">2 hours</option>
+                        <option value="14400">4 hours</option>
+                        <option value="28800">8 hours</option>
+                        <option value="43200">12 hours</option>
+                        <option value="86400">24 hours</option>
+                        <option value="172800">48 hours</option>
+                    </select>
+                    <p id="turn-lifetime-help" class="option-help"></p>
+                    <p class="option-help">Find the domain and secret key under Developers in your Metered dashboard. The account secret stays on this host screen and is never included in invitations or saved to disk. New credentials may take up to two minutes to become usable. The guest waits automatically.</p>
+                    <p id="turn-provider-status" role="status" aria-live="polite"></p>
+                </details>
+                <div class="game-actions">
+                    <button id="play-computer-btn" type="button" disabled>Play with computer</button>
+                    <button id="create-btn" type="button" disabled>Create game</button>
+                </div>
             </div>
 
             <div id="join-separator" class="divider">OR</div>
+            <div id="app-join-options" class="menu-group hidden">
+                <h3>Join a game</h3>
+                <p class="option-help">Open your friend's invitation link, or paste it here.</p>
+                <input id="app-join-link" type="text" maxlength="16384" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Invitation link" aria-label="Invitation link">
+                <button id="join-peer-btn" type="button">Join a game</button>
+            </div>
 
             <div id="join-game-options" class="menu-group">
                 <h3>Join Game</h3>
