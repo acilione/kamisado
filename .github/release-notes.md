@@ -15,7 +15,7 @@ The app includes its runtime and runs without installation. You do not need Node
 
 - **Computer:** choose the game settings and a difficulty from 1–10, then press **Play with computer**. Works offline.
 - **LAN:** choose **Host a LAN game**, create a game, and share the link or QR code. Your friend joins in a browser on the same network.
-- **Internet:** choose settings, press **Create game**, and share the HTTPS invitation. Cloudflare Quick Tunnel is the default and needs no account. Your friend joins in a browser.
+- **Internet:** choose settings, press **Create game**, and share the HTTPS invitation. tunnl.gg is the default and needs no account. Your friend joins in a browser. Cloudflare and ngrok remain available in the connection settings.
 - **ngrok:** select it under **Internet connection** on desktop. Only the host needs an account token; it is never included in invitations.
 
 Android can host Cloudflare invitations with its bundled connector. ngrok hosting is desktop-only; iPhones can join in Safari. Cloudflare Quick Tunnels are a testing service with no uptime guarantee. The tunnel provider forwards traffic and terminates HTTPS. Legacy P2P app invitations remain supported separately.

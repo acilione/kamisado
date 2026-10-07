@@ -5,6 +5,7 @@ const path = require('node:path');
 const { io } = require('socket.io-client');
 const { startServer } = require('../dist/server');
 const { CloudflareConnectivityProvider } = require('../dist/desktop/connectivity/cloudflare-provider');
+const { TunnlConnectivityProvider } = require('../dist/desktop/connectivity/tunnl-provider');
 const connect = origin => new Promise((resolve, reject) => {
   const socket = io(origin, { transports: ['websocket'], timeout: 20000, reconnection: false });
   socket.once('connect', () => resolve(socket));
@@ -15,7 +16,9 @@ const ack = (socket, event, data) => new Promise((resolve, reject) => socket.tim
 (async () => {
   const server = await startServer({ port: 0, host: '127.0.0.1' });
   const localOrigin = `http://127.0.0.1:${server.port}`;
-  const provider = new CloudflareConnectivityProvider(path.join(os.tmpdir(), 'kamisado-cloudflare-live'));
+  const service = process.env.TUNNEL_PROVIDER || 'tunnl';
+  const Provider = service === 'tunnl' ? TunnlConnectivityProvider : CloudflareConnectivityProvider;
+  const provider = new Provider(path.join(os.tmpdir(), `kamisado-${service}-live`));
   let host, guest;
   try {
     const details = await provider.start({ port: server.port, localOrigin });
@@ -33,6 +36,6 @@ const ack = (socket, event, data) => new Promise((resolve, reject) => socket.tim
     });
     host.emit('makeMove', { gameId: game.gameId, move: { fromR: 0, fromC: 0, toR: 1, toC: 0 } });
     await moved;
-    console.log('Live Cloudflare HTTPS/WebSocket check passed: browser endpoint, guest join, move delivery.');
+    console.log(`Live ${service} HTTPS/WebSocket check passed: health endpoint, guest join, move delivery.`);
   } finally { host?.close(); guest?.close(); await provider.stop(); await server.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

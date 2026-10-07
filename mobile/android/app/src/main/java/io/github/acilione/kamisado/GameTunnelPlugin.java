@@ -29,7 +29,7 @@ public class GameTunnelPlugin extends Plugin {
     private volatile String origin;
     private volatile boolean serving;
     private String provider;
-    private volatile String diagnostic = "Cloudflare did not register the tunnel in time. Try again.";
+    private volatile String diagnostic = "The invitation service did not connect in time. Try again.";
     private ScheduledExecutorService maintenance;
     private AndroidDnsProxy dns;
 
@@ -42,24 +42,26 @@ public class GameTunnelPlugin extends Plugin {
     }
 
     @PluginMethod public void start(PluginCall call) {
-        final String mode = call.getString("mode", "cloudflare");
+        final String mode = call.getString("mode", "tunnl");
         lifecycle.execute(() -> {
             try {
-                if (!mode.equals("cloudflare")) throw new IOException("ngrok hosting is available in the desktop app. On Android, choose Cloudflare Quick Tunnel.");
+                if (!mode.equals("cloudflare") && !mode.equals("tunnl")) throw new IOException("On Android, choose Cloudflare or tunnl.gg. ngrok hosting is desktop-only.");
                 if (android.os.Build.VERSION.SDK_INT < 29) throw new IOException("Internet hosting requires Android 10 or newer. You can still join invitations in your browser and play offline.");
                 if (isAlive(connector) && mode.equals(provider) && origin != null) {
                     call.resolve(new JSObject().put("origin", origin)); return;
                 }
                 stopInternal();
-                diagnostic = "Cloudflare did not register the tunnel in time. Try again.";
-                File binary = new File(getContext().getApplicationInfo().nativeLibraryDir, "libcloudflared.so");
-                if (!binary.isFile()) throw new IOException("This APK does not include the Cloudflare connector for this processor. Install the full Android build.");
+                diagnostic = mode.equals("tunnl") ? "tunnl.gg did not connect in time. Check your network or choose Cloudflare." : "Cloudflare did not register the tunnel in time. Try again.";
+                File binary = new File(getContext().getApplicationInfo().nativeLibraryDir, mode.equals("tunnl") ? "libtunnl.so" : "libcloudflared.so");
+                if (!binary.isFile()) throw new IOException("This APK is missing the selected connector for this processor. Install the full Android build.");
                 server = new BridgeServer();
                 server.start(35000, true);
                 File config = new File(getContext().getCacheDir(), "quick-tunnel.yml");
                 try (FileOutputStream stream = new FileOutputStream(config)) { stream.write("{}\n".getBytes(StandardCharsets.UTF_8)); }
                 String local = "http://127.0.0.1:" + server.getListeningPort();
-                List<String> args = Arrays.asList(binary.getAbsolutePath(), "tunnel", "--config", config.getAbsolutePath(), "--no-autoupdate", "--protocol", "http2", "--url", local);
+                List<String> args = mode.equals("tunnl")
+                    ? Arrays.asList(binary.getAbsolutePath(), "--port", String.valueOf(server.getListeningPort()), "--state", new File(getContext().getFilesDir(), "tunnl").getAbsolutePath())
+                    : Arrays.asList(binary.getAbsolutePath(), "tunnel", "--config", config.getAbsolutePath(), "--no-autoupdate", "--protocol", "http2", "--url", local);
                 ProcessBuilder builder = new ProcessBuilder(args).redirectErrorStream(true);
                 builder.environment().put("HOME", getContext().getFilesDir().getAbsolutePath());
                 dns = new AndroidDnsProxy();
@@ -71,7 +73,7 @@ public class GameTunnelPlugin extends Plugin {
                 origin = ready.get(65, TimeUnit.SECONDS);
                 // Registration confirms the outbound tunnel. Java's negative DNS cache can
                 // reject a fresh public hostname even while a guest browser can open it.
-                if (!isAlive(process)) throw new IOException("Cloudflare closed the tunnel. Try creating the game again.");
+                if (!isAlive(process)) throw new IOException("The service closed the tunnel. Try creating the game again.");
                 serving = true;
                 maintenance = Executors.newSingleThreadScheduledExecutor();
                 maintenance.scheduleAtFixedRate(() -> {
@@ -91,10 +93,21 @@ public class GameTunnelPlugin extends Plugin {
     private void readConnector(Process process, CompletableFuture<String> ready) {
         String address = null;
         boolean registered = false;
-        Pattern pattern = Pattern.compile("https://[a-z0-9]+(?:-[a-z0-9]+)+\\.trycloudflare\\.com\\b");
+        final boolean tunnl = "tunnl".equals(provider);
+        Pattern pattern = Pattern.compile(tunnl ? "^READY (https://[a-z0-9]+(?:-[a-z0-9]+)+\\.tunnl\\.gg)$" : "https://[a-z0-9]+(?:-[a-z0-9]+)+\\.trycloudflare\\.com\\b");
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
+                if (tunnl) {
+                    if (line.startsWith("ERROR ")) diagnostic = line.substring(6);
+                    if (line.equals("RECONNECTING") && connector == process && serving) notifyListeners("status", new JSObject().put("reconnecting", true));
+                    Matcher invitation = pattern.matcher(line);
+                    if (invitation.matches()) {
+                        ready.complete(invitation.group(1));
+                        if (connector == process && serving) notifyListeners("status", new JSObject().put("reconnecting", false));
+                    }
+                    continue;
+                }
                 // Keep private invitation addresses out of Android's shared logs.
                 String lower = line.toLowerCase(Locale.ROOT);
                 if (lower.contains("429") || lower.contains("too many requests")) diagnostic = "Cloudflare is limiting new tunnels. Wait a minute, then try again.";

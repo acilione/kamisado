@@ -9,6 +9,7 @@ interface TunnelPlugin {
     send(options: { session: string; frame: unknown }): Promise<void>;
     addListener(event: 'request', listener: (message: { session: string; action: string; frame?: any }) => void): Promise<PluginListenerHandle>;
     addListener(event: 'stopped', listener: () => void): Promise<PluginListenerHandle>;
+    addListener(event: 'status', listener: (status: { reconnecting: boolean }) => void): Promise<PluginListenerHandle>;
 }
 const native = registerPlugin<TunnelPlugin>('GameTunnel');
 const allowed = new Set(['joinGame', 'checkActiveSession', 'makeMove', 'confirmNextRound', 'fillChoice']);
@@ -39,7 +40,16 @@ export async function installMobileTunnel(host: ReturnType<typeof createLocalHos
             (socket.emit as Function)(frame.event, frame.data, ...(frame.id === undefined ? [] : [acknowledge]));
         }
     });
+    const notice = document.createElement('p');
+    notice.className = 'hidden tunnel-connection-notice';
+    notice.setAttribute('role', 'status');
+    document.getElementById('app')!.prepend(notice);
+    const status = await native.addListener('status', ({ reconnecting }) => {
+        notice.classList.toggle('hidden', !reconnecting);
+        notice.textContent = reconnecting ? 'Reconnecting to tunnl.gg… Keep the same invitation open.' : '';
+    });
     const stopped = await native.addListener('stopped', () => {
+        notice.classList.add('hidden');
         host.setPublicOrigin(null);
         document.getElementById('connection-notice')!.classList.remove('hidden');
         document.getElementById('connection-notice')!.textContent = 'The Internet tunnel stopped. Return to the main menu and create a new invitation.';
@@ -53,6 +63,8 @@ export async function installMobileTunnel(host: ReturnType<typeof createLocalHos
         await native.stop();
         await listener.remove();
         await stopped.remove();
+        await status.remove();
+        notice.remove();
         for (const socket of connections.values()) socket.disconnect();
         connections.clear();
     };

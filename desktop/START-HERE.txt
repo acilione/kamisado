@@ -47,12 +47,14 @@ https://support.apple.com/en-us/102445
 Playing
 
 Internet invitations (recommended)
-  Choose your game settings and press "Create game". Cloudflare opens a
+  Choose your game settings and press "Create game". tunnl.gg opens a
   temporary connection without an account. Share the HTTPS invitation;
   your friend opens it in their browser. Keep this app open and awake.
-  The first desktop connection downloads a verified Cloudflare connector.
-  Quick Tunnels have no uptime guarantee. If unavailable, try again or
-  select ngrok under "Internet connection" in the game settings.
+  Its connector is included. Neither player needs an account or password.
+  Your friend may need to continue through a welcome page before joining.
+  If unavailable, try again or select Cloudflare or ngrok under
+  "Internet connection" in the game settings. The first Cloudflare
+  connection downloads a verified connector.
   ngrok needs a host account/token; guests never need that token.
   Share invitations privately. The tunnel provider forwards the traffic.
 

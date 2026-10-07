@@ -25,21 +25,24 @@ Desktop builds run without installation. Extract the whole ZIP and keep its file
 
 ## Mobile
 
-Android and iOS apps use the same game code through Capacitor. They share offline computer play. Android can host Cloudflare browser invitations; iOS retains legacy P2P hosting and can join tunnel invitations in Safari. Android test builds use an APK; iPhone installation requires a signed Xcode build until a TestFlight or App Store release is available. See the [mobile guide](docs/mobile.md) for installation, building, and current limitations.
+Android and iOS apps use the same game code through Capacitor. They share offline computer play. Android can host tunnl.gg and Cloudflare browser invitations; iOS retains legacy P2P hosting and can join tunnel invitations in Safari. Android test builds use an APK; iPhone installation requires a signed Xcode build until a TestFlight or App Store release is available. See the [mobile guide](docs/mobile.md) for installation, building, and current limitations.
 
 ## Ways to play
 
 | Mode | What you need |
 | --- | --- |
 | Computer | One desktop or mobile app. Works offline, with difficulty levels 1–10. |
-| Internet — Cloudflare | A desktop or Android 10+ host. Choose settings, press **Create game**, then share the HTTPS invitation. Your friend opens it in a browser. No account or credentials. |
+| Internet — tunnl.gg (default) | A desktop or Android 10+ host. Choose settings, press **Create game**, then share the HTTPS invitation. Your friend opens it in a browser. No account or credentials. |
+| Internet — Cloudflare | Select **Cloudflare Quick Tunnel** under **Internet connection** before creating the game. Available on desktop and Android 10+, without an account. |
 | Internet — ngrok | A desktop host with an ngrok account and authtoken. Guests only need the invitation link. |
 | LAN | A desktop host and devices on the same Wi-Fi or Ethernet network. Guests open the invitation in a browser. |
 | Legacy P2P | Existing app invitations still work, with STUN/TURN setup where needed. |
 
-**Cloudflare Quick Tunnel is the default for new Internet games.** The game runs on the host's device, and Cloudflare forwards the connection. Desktop downloads a pinned, checksum-verified connector on first use; the Android APK includes it. No game server needs to be operated by the maintainer. This is a temporary testing service with no uptime guarantee, not a production hosting commitment. See [Cloudflare's limits](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
+**tunnl.gg is the default for new Internet games.** The game runs on the host's device, with a bundled connector forwarding the connection through tunnl.gg. Neither player needs an account or SSH installation, and the maintainer does not operate a game server. Guests may see a welcome page before joining; free tunnels last up to 24 hours. See [tunnl.gg's limits](https://tunnl.gg/docs). Cloudflare Quick Tunnel and ngrok remain available under **Internet connection**.
 
 To use ngrok on desktop, expand **Internet connection** in the game settings and select it. Enter the host's authtoken, or use the token saved through the desktop Connection screen. Guests never receive that token. The free plan has usage limits and a browser welcome page. See the [player guide](docs/player-guide.md#internet-invitations).
+
+The [account-free tunnel comparison](docs/tunnel-research.md) explains the alternatives, session limits, and reliability checks needed before changing providers.
 
 Keep the host app open and the device awake during a match. On Android, return to Kamisado after sharing and keep it in the foreground. Games are held in memory and are lost when the host closes the app. Anyone holding an invitation can try to join or watch, so share it privately. HTTPS protects traffic in transit; the tunnel provider terminates HTTPS and is not an end-to-end-encrypted peer connection.
 
@@ -50,6 +53,8 @@ Install Git and Node.js **22.12 or newer** with npm; Node.js 24 is recommended. 
 ```sh
 npm ci
 ```
+
+Desktop builds also require **Go 1.26+** on PATH to compile the bundled tunnl.gg connector. The desktop commands below build it automatically; players do not need Go or SSH installed.
 
 All commands below start from the repository root. Build desktop apps on the operating system they will run on, using its native Node.js installation. WSL builds Linux apps; use a separate Windows checkout and Windows Node.js to build Windows apps. Before collecting another release, move the previous platform folder out of `out/release/`; collection refuses to mix old and new builds.
 
@@ -146,7 +151,7 @@ Install Android Studio, **JDK 21**, Android SDK Platform **36**, Build Tools **3
 
 To compile and run through Android Studio:
 
-For Cloudflare hosting, first install **Go 1.26+** and **Android NDK 26.1+**, then build the bundled connector once:
+For Cloudflare and tunnl.gg hosting, first install **Go 1.26+** and **Android NDK 26.1+**, then build the bundled connectors once:
 
 ```powershell
 # Windows PowerShell

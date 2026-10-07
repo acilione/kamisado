@@ -558,7 +558,7 @@ select:focus-visible {
     .invite-content { flex-direction: column; gap: 2px; }
     .invite-copy { width: 100%; }
 }
-#connection-notice {
+#connection-notice, .tunnel-connection-notice {
     padding: 12px 16px;
     border: 1px solid #ffffff28;
     border-radius: 8px;
@@ -642,6 +642,37 @@ select:focus-visible {
 #peer-relay-fields { min-width: 0; margin: 12px 0; border: 1px solid #465067; border-radius: 6px; }
 #peer-relay-fields input { width: 100%; box-sizing: border-box; }
 #peer-relay-fields:disabled { opacity: 0.6; }
+
+/* Shared, compact connection preferences in desktop and mobile game settings. */
+#tunnel-options { margin: 4px 0 18px; border: 1px solid #ffffff24; border-radius: 12px; background: #171d27; text-align: left; }
+#tunnel-options > summary { display: flex; align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; list-style: none; }
+#tunnel-options > summary::-webkit-details-marker { display: none; }
+#tunnel-options > summary::after { content: ''; width: 7px; height: 7px; flex-shrink: 0; border-right: 1.5px solid #aab6c8; border-bottom: 1.5px solid #aab6c8; transform: rotate(45deg); margin: -4px 2px 0 0; }
+#tunnel-options[open] > summary::after { transform: rotate(225deg); margin-top: 4px; }
+.tunnel-summary-copy { flex: 1; color: #e3e8f0; font-size: .88rem; font-weight: 600; }
+.tunnel-summary-copy small { display: block; margin-top: 4px; color: #a8b1c0; font-size: .75rem; font-weight: 400; }
+.tunnel-selection { color: #b9cbde; font-size: .73rem; text-align: right; }
+.tunnel-settings-body { padding: 4px 16px 16px; }
+#tunnel-options label { display: block; margin: 10px 0 7px; font-size: .8rem; color: #bfc8d7; }
+#tunnel-options select, #tunnel-options input { width: 100%; min-height: 44px; margin: 0; padding: 10px 12px; border: 1px solid #475265; border-radius: 8px; color: #edf0f6; background: #111721; font: inherit; font-size: .9rem; }
+#tunnel-options .option-help { margin: 9px 0 12px; color: #b2bdcb; font-size: .78rem; line-height: 1.55; }
+.tunnel-footnote { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid #ffffff14; color: #a7b4c4; font-size: .75rem; line-height: 1.55; }
+#tunnel-ngrok { margin-top: 14px; padding-top: 2px; border-top: 1px solid #ffffff14; }
+#tunnel-status:empty { display: none; }
+#tunnel-status:not(:empty) { display: flex; align-items: flex-start; gap: 9px; margin: -6px 0 18px; padding: 11px 13px; border: 1px solid #536882; border-radius: 9px; color: #cfdef0; background: #202b3b; text-align: left; line-height: 1.5; }
+#tunnel-status[data-state="error"] { color: #ffcdc4; background: #352526; border-color: #845856; }
+#tunnel-status[data-state="ready"] { color: #c3e8d2; background: #1d3028; border-color: #486c57; }
+#tunnel-status[data-state="connecting"]::before { content: ''; flex: 0 0 12px; height: 12px; margin-top: 3px; border: 2px solid #74879e; border-right-color: transparent; border-radius: 50%; animation: tunnel-progress 1s linear infinite; }
+@keyframes tunnel-progress { to { transform: rotate(360deg); } }
+#tunnel-options summary:focus-visible, #tunnel-options :is(input, select):focus-visible { outline: 2px solid #aecbf2; outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { #tunnel-status[data-state="connecting"]::before { animation: none; } }
+@media (max-width: 420px) {
+    #tunnel-options > summary { flex-wrap: wrap; gap: 7px; padding: 12px; }
+    .tunnel-summary-copy { flex-basis: calc(100% - 24px); }
+    .tunnel-selection { order: 1; text-align: left; }
+    .tunnel-settings-body { padding: 2px 12px 12px; }
+    #tunnel-options select, #tunnel-options input { font-size: 16px; }
+}
 
 /* Shared touch layout, including browser guests on phones. */
 body {
