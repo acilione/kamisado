@@ -77,6 +77,11 @@ async function peerDiagnostics() {
 
 async function main() {
   await fs.access(executable);
+  const resources = process.platform === 'darwin'
+    ? path.resolve(path.dirname(executable), '../Resources')
+    : path.join(path.dirname(executable), 'resources');
+  await fs.access(path.join(resources, 'app.asar.unpacked/desktop/connectors',
+    `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'tunnl.exe' : 'tunnl'));
   if (process.platform !== 'darwin') {
     const guide = await fs.readFile(path.join(path.dirname(executable), 'START-HERE.txt'), 'utf8');
     assert.match(guide, /Share link/);
@@ -229,7 +234,7 @@ async function main() {
     await shell.locator('#stop-hosting').click();
     await shell.locator('#confirm-stop').click();
     // This action is hidden throughout an active LAN session and appears after Stop completes.
-    await shell.locator('#peer-host-button').waitFor({ state: 'visible' });
+    await shell.locator('#computer-button').waitFor({ state: 'visible' });
     await assertPortClosed(state.port, 'Stop must close the HTTP and Socket.IO listener');
     await guest.locator('#connection-notice').filter({ hasText: 'The host stopped this game.' }).waitFor({ state: 'visible' });
     assert.equal(await guest.locator('.cell.playable, .cell.selected, .cell.valid-move').count(), 0, 'stopped guests must not see playable moves');
@@ -256,6 +261,7 @@ async function main() {
     const peerOrigins = [];
     await shell.context().addInitScript(useLocalIceCandidates);
     for (const [button, role] of [['#peer-host-button', 'host'], ['#peer-join-button', 'guest']]) {
+      if (!await shell.locator('#internet-options').evaluate(element => element.open)) await shell.locator('#internet-options summary').click();
       await shell.locator(button).click();
       const peerPage = shell.frameLocator('#game-frame');
       await peerPage.locator(role === 'host' ? '#create-btn' : '#peer-panel').waitFor({ state: 'visible' });
@@ -326,7 +332,7 @@ async function main() {
       assert.match(await shell.locator('#status-description').textContent(), /directly to your friend/);
       await shell.locator('#stop-hosting').click();
       await shell.locator('#confirm-stop').click();
-      await shell.locator('#peer-host-button').waitFor({ state: 'visible' });
+      await shell.locator('#computer-button').waitFor({ state: 'visible' });
       await assertPortClosed(peer.port, 'Ending a peer session must close its local page server');
       if (peerGuest) {
         await peerGuest.waitForFunction(() => document.getElementById('peer-panel').open

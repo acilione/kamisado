@@ -23,14 +23,14 @@ You can also join a desktop LAN game now by opening its invitation link in Safar
 ### Game modes
 
 - **Play with computer:** choose settings and press the button. All ten levels work offline.
-- **Create game on Android:** choose settings, then press **Create game**. Cloudflare opens a temporary tunnel. Press **Share link**, send the invitation, then return to Kamisado. Your friend opens the link in a browser, without an account or app installation.
+- **Create game on Android:** choose settings, then press **Create game**. tunnl.gg opens the connection by default. Press **Share link**, send the invitation, then return to Kamisado. Your friend opens the link in a browser, without an account or app installation.
 - **Join a game:** open the HTTPS invitation in your browser, or paste it into the app's join field. Legacy `kamisado://join/` invitations still open the P2P join screen.
 
-Cloudflare Quick Tunnel hosting requires Android 10 or newer and is included for arm64 and x86_64 builds. Older supported Android versions can still play offline and join in a browser. No Termux, router setup, or relay credentials are needed. The host phone must remain awake with Kamisado in the foreground; locking it or switching away for an extended period can interrupt the game. There is no background service or permanent wake lock. Hosting keeps a connector and the game WebView running, so it uses more battery than joining; battery consumption has not been benchmarked. Keep brightness modest and use a charger for long games.
+Cloudflare and tunnl.gg hosting require Android 10 or newer and are included for arm64 and x86_64 builds. tunnl.gg is selected by default under **Internet connection**; no account or credentials are needed. Its browser welcome page may appear before your friend joins. Older supported Android versions can still play offline and join in a browser. No Termux or router setup is needed. The host phone must remain awake with Kamisado in the foreground; locking it or switching away for an extended period can interrupt the game. There is no background service or permanent wake lock. Hosting keeps a connector and the game WebView running, so it uses more battery than joining; battery consumption has not been benchmarked. Keep brightness modest and use a charger for long games.
 
-The tunnel forwards traffic through Cloudflare, whose Quick Tunnel service has no uptime guarantee. A new hosting session gets a new address. The app closes the connector when you return to the main menu or close the app. Share invitations privately: anyone with the link can try to join or watch. The provider terminates HTTPS and can process the traffic.
+The tunnel forwards traffic through the selected provider. tunnl.gg retains its address across reconnects; Cloudflare assigns a new address for each hosting session. Neither guarantees an uninterrupted match. The app closes the connector when you return to the main menu or close the app. Share invitations privately: anyone with the link can try to join or watch. The provider terminates HTTPS and can process the traffic.
 
-If a fresh invitation does not resolve, keep Kamisado open and ask your friend to retry the same link after a minute. Cloudflare error **1033** means the connector has lost its connection; allow it to reconnect with the phone awake. If the error persists, return to the main menu and create a new invitation. Mobile hosting is experimental: it passed an on-device game test, but the connection also dropped during repeated testing.
+If a fresh invitation does not resolve, keep Kamisado open and ask your friend to retry the same link after a minute. If you selected Cloudflare, error **1033** means the connector has lost its connection; allow it to reconnect with the phone awake. If the error persists, return to the main menu and create a new invitation. Mobile hosting is experimental: it passed an on-device game test, but the connection also dropped during repeated testing.
 
 ngrok hosting remains desktop-only. iOS hosting still uses the existing P2P flow; an iPhone can join either tunnel service through Safari. No iOS native tunnel connector is included.
 
@@ -119,6 +119,7 @@ This produces a simulator application, not an installer for a physical iPhone. N
 | `src/mobile/tunnel-host.ts`, `tunnel-guest.ts`, `src/client/http-socket.ts` | Android host adapter and browser guest transport; both use the shared match controller. |
 | `mobile/android/.../GameTunnelPlugin.java` | Loopback HTTP listener, bounded guest queues, static guest assets, and connector lifecycle. No game rules. |
 | `scripts/build-android-tunnel.cjs` | Verified source download and Android cross-compilation of cloudflared. |
+| `native/tunnl/`, `scripts/build-tunnl.cjs` | Shared SSH connector and desktop/Android builds. `mobile:tunnel` builds both providers. |
 | `scripts/build-mobile.cjs` | Packages the existing HTML/CSS and mobile entry point; embeds the AI worker for offline use and iOS's local URL scheme. |
 | `capacitor.config.json`, `mobile/android/`, `mobile/ios/` | App identifiers, native project settings, icons, permissions, and native builds. |
 

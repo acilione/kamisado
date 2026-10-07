@@ -1,14 +1,14 @@
 # Development
 
-Internet hosting uses the existing desktop server. Cloudflare Quick Tunnel is the default; `src/desktop/connectivity/cloudflare-provider.ts` downloads and verifies its pinned connector on first use. ngrok still uses the existing SDK. No developer-hosted signaling service is needed for either tunnel mode.
+Internet hosting uses the existing desktop server. tunnl.gg is the default and uses the bundled connector in `native/tunnl/`. Cloudflare is an alternative; `src/desktop/connectivity/cloudflare-provider.ts` downloads and verifies its pinned connector on first use. ngrok uses its SDK. None requires a signaling server operated by the maintainer.
 
-Android adds a native transport bridge and a bundled Cloudflare connector. Before making a full APK, run `npm run mobile:tunnel` with Go 1.26+ on PATH and `ANDROID_NDK_HOME` pointing to NDK 26.1+. See [Android build commands](mobile.md#android-build). Changing game rules or rendering still means editing the shared TypeScript, not the Java bridge.
+Android adds a native transport bridge and bundled Cloudflare and tunnl.gg connectors. Before making a full APK, run `npm run mobile:tunnel` with Go 1.26+ on PATH and `ANDROID_NDK_HOME` pointing to NDK 26.1+. See [Android build commands](mobile.md#android-build). Changing game rules or rendering still means editing the shared TypeScript, not the Java bridge.
 
 Tunnel checks after building:
 
 ```sh
 node tests/browser/test_tunnel_host.cjs
-# Optional: makes a temporary public Cloudflare tunnel and exchanges a test move
+# Optional: makes a public tunnl.gg tunnel and exchanges a test move
 node scripts/test-tunnel-live.cjs
 ```
 
@@ -66,6 +66,12 @@ npm start
 Run these commands on the operating system you are building for. Use Windows Node.js for Windows builds, Linux Node.js for Linux builds, and macOS Node.js for macOS builds. WSL produces Linux builds. Keep separate dependency installations when working across operating systems; Electron and ngrok include platform-specific binaries.
 
 After `npm ci`, the desktop commands are:
+
+Install Go 1.26 or newer as well. Each desktop command compiles the small SSH connector before packaging. `npm run tunnel:build` builds it separately under `desktop/connectors/<platform>-<arch>/`. The binary is unpacked beside `app.asar` so the app can execute it. Go is not needed by players.
+
+When cross-compiling the connector, set `TUNNL_GOOS` (`windows`, `linux`, or `darwin`) and `TUNNL_GOARCH` (`amd64` or `arm64`) to match the Forge target. `GO_BINARY` can select a Go installation. Dependencies remain pinned by `native/tunnl/go.mod` and `go.sum`.
+
+Run the connector tests from `native/tunnl/` with `go test ./...`. For an optional live match check after building, run `TUNNEL_PROVIDER=tunnl node scripts/test-tunnel-live.cjs` on Linux/macOS, or set `$env:TUNNEL_PROVIDER = 'tunnl'` before the same Node command in PowerShell. This creates a public test tunnel, joins a guest, exchanges a move, and closes it.
 
 | Command | Result |
 | --- | --- |

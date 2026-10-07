@@ -5,6 +5,8 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 
 async function run() {
+  const screenshots = path.resolve(__dirname, '../../out/connection-ui');
+  await fs.mkdir(screenshots, { recursive: true });
   // Exercise the actual launcher with a desktop API stub. Native URL validation
   // and IPC sender checks are covered by the desktop unit/packaged tests.
   const files = new Map(await Promise.all(['index.html', 'renderer.js', 'style.css'].map(async name => [
@@ -84,6 +86,8 @@ async function run() {
     await page.locator('#hosting-settings').click();
     assert.match(await page.locator('#lan-button').textContent(), /Wi-Fi or Ethernet/);
     assert.equal(await page.locator('#internet-options').getAttribute('open'), null);
+    assert.equal(await page.locator('#peer-host-button').isVisible(), false, 'Legacy hosting stays in secondary settings');
+    await page.screenshot({ path: path.join(screenshots, 'desktop-connection.png'), fullPage: true });
     assert.equal(await page.locator('#token-setup').isVisible(), false);
     assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?hosting=tunnel');
 
@@ -162,6 +166,7 @@ async function run() {
     await page.locator('#confirm-stop').click();
 
     for (const [button, mode] of [['#peer-host-button', 'host'], ['#peer-join-button', 'guest']]) {
+      if (!await page.locator('#internet-options').evaluate(element => element.open)) await page.locator('#internet-options summary').click();
       await page.locator(button).click();
       await page.locator('#game-panel').waitFor();
       assert.equal(await page.locator('#game-frame').getAttribute('src'), origin + '/?peer=' + mode);
@@ -183,7 +188,7 @@ async function run() {
     assert.equal(await page.locator('#stop-hosting').textContent(), 'End session');
     await page.locator('#stop-hosting').click();
     await page.locator('#confirm-stop').click();
-    await page.locator('#internet-options summary').click();
+    if (!await page.locator('#internet-options').evaluate(element => element.open)) await page.locator('#internet-options summary').click();
     await page.locator('#online-button').click();
     await page.locator('#token-setup').waitFor();
     assert.equal(await page.locator('.quick-actions').isVisible(), false);

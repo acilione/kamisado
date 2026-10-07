@@ -3,6 +3,11 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { KamisadoDesktopApi, StartHostingRequest } from './contracts.js';
 
 const api: KamisadoDesktopApi = {
+    onTunnelStatus: callback => {
+        const listener = (_event: Electron.IpcRendererEvent, value: boolean) => callback(value === true);
+        ipcRenderer.on('hosting:tunnel-status', listener);
+        return () => ipcRenderer.removeListener('hosting:tunnel-status', listener);
+    },
     onHostingStopped: callback => {
         const listener = () => callback();
         ipcRenderer.on('hosting:tunnel-stopped', listener);

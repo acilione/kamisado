@@ -7,6 +7,7 @@ import { setPublicOrigin, startServer } from '../server/index.js';
 import { DirectConnectivityProvider } from './connectivity/direct-provider.js';
 import { NgrokConnectivityProvider } from './connectivity/ngrok-provider.js';
 import { CloudflareConnectivityProvider } from './connectivity/cloudflare-provider.js';
+import { TunnlConnectivityProvider } from './connectivity/tunnl-provider.js';
 import { ConnectivityProviderManager } from './connectivity/provider-manager.js';
 import { HostingController, validateStartRequest } from './hosting-controller.js';
 import { TokenVault } from './token-vault.js';
@@ -186,6 +187,10 @@ if (windowsNetworkPath) {
             manager: new ConnectivityProviderManager({
                 direct: () => new DirectConnectivityProvider(),
                 ngrok: () => new NgrokConnectivityProvider(),
+                tunnl: () => new TunnlConnectivityProvider(path.join(app.getPath('userData'), 'tunnl'), () => {
+                    void hosting?.stop().then(() => controlWindow?.webContents.send('hosting:tunnel-stopped'));
+                }, reconnecting => controlWindow?.webContents.send('hosting:tunnel-status', reconnecting),
+                (url, options) => net.fetch(url, options)),
                 cloudflare: () => new CloudflareConnectivityProvider(path.join(app.getPath('userData'), 'cloudflared'), () => {
                     void hosting?.stop().then(() => controlWindow?.webContents.send('hosting:tunnel-stopped'));
                 }, (url, options) => net.fetch(url, options)),

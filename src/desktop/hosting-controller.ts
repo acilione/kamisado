@@ -16,7 +16,7 @@ interface HostingDependencies {
 export function validateStartRequest(value: unknown): StartHostingRequest {
     if (!value || typeof value !== 'object') throw new Error('Invalid hosting request.');
     const request = value as Partial<StartHostingRequest>;
-    if (request.mode !== 'direct' && request.mode !== 'ngrok' && request.mode !== 'cloudflare') throw new Error('Unknown connectivity mode.');
+    if (request.mode !== 'direct' && request.mode !== 'ngrok' && request.mode !== 'cloudflare' && request.mode !== 'tunnl') throw new Error('Unknown connectivity mode.');
     if (request.localOnly !== undefined && typeof request.localOnly !== 'boolean') {
         throw new Error('Invalid local play preference.');
     }

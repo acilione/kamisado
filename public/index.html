@@ -100,18 +100,21 @@
             <div id="create-game-options" class="menu-group">
                 <h3>Game settings</h3>
                 <details id="tunnel-options" class="hidden">
-                    <summary>Internet connection</summary>
+                    <summary><span class="tunnel-summary-copy">Internet connection<small>Create a link for your friend</small></span><span id="tunnel-selection" class="tunnel-selection">tunnl.gg · no account</span></summary>
+                    <div class="tunnel-settings-body">
                     <label for="tunnel-provider">Invitation service</label>
                     <select id="tunnel-provider">
+                        <option value="tunnl" selected>tunnl.gg — no account</option>
                         <option value="cloudflare">Cloudflare Quick Tunnel — no account</option>
                         <option value="ngrok">ngrok — host account required</option>
                     </select>
-                    <p class="option-help">Your friend opens an HTTPS link in their browser. No setup or credentials needed. The game runs on this device; the service forwards the connection.</p>
-                    <p class="option-help">Cloudflare Quick Tunnels are a free testing service with no uptime guarantee. Keep the host app open and the device awake.</p>
+                    <p id="tunnel-provider-help" class="option-help">Free, temporary links without an account. Availability is not guaranteed.</p>
                     <div id="tunnel-ngrok" class="hidden">
                         <label for="tunnel-token">Host's ngrok authtoken</label>
-                        <input id="tunnel-token" type="password" autocomplete="off" maxlength="2048" placeholder="Paste your token (or use the desktop's saved token)">
-                        <p class="option-help">Get a token from dashboard.ngrok.com. It stays on the host and is never added to invitations. The free plan has usage limits and a browser welcome page.</p>
+                        <input id="tunnel-token" type="password" autocomplete="off" maxlength="2048" placeholder="Paste your authtoken">
+                        <p class="option-help">Get your authtoken from dashboard.ngrok.com, or leave this blank to use the desktop's saved token. It is never added to invitations.</p>
+                    </div>
+                    <p class="tunnel-footnote">Your friend only needs a browser. Keep this app open and your device awake.</p>
                     </div>
                 </details>
                 <p id="tunnel-status" class="option-help" role="status" aria-live="polite"></p>

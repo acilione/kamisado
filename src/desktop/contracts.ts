@@ -34,4 +34,5 @@ export interface KamisadoDesktopApi {
     takeInvitation(): Promise<string | null>;
     onInvitation(callback: (invitation: string) => void): () => void;
     onHostingStopped(callback: () => void): () => void;
+    onTunnelStatus(callback: (reconnecting: boolean) => void): () => void;
 }

@@ -23,7 +23,7 @@ android {
         }
     }
     packagingOptions {
-        jniLibs { useLegacyPackaging true; keepDebugSymbols += ['**/libcloudflared.so'] }
+        jniLibs { useLegacyPackaging true; keepDebugSymbols += ['**/libcloudflared.so', '**/libtunnl.so'] }
     }
 }
 

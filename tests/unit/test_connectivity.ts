@@ -93,7 +93,7 @@ class FakeProvider implements ConnectivityProvider {
     stopped = false;
 
     constructor(
-        readonly mode: 'direct' | 'ngrok' | 'cloudflare',
+        readonly mode: 'direct' | 'ngrok' | 'cloudflare' | 'tunnl',
         private readonly shouldFail = false,
     ) {}
 
@@ -118,6 +118,7 @@ async function testProviderLifecycle(): Promise<void> {
     let failNgrok = false;
     const manager = new ConnectivityProviderManager({
         cloudflare: () => new FakeProvider('cloudflare'),
+        tunnl: () => new FakeProvider('tunnl'),
         direct: () => {
             const provider = new FakeProvider('direct');
             created.push(provider);

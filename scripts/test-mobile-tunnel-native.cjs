@@ -9,7 +9,8 @@ const { chromium } = require('playwright');
   if (!host) throw new Error('Open Kamisado on the unlocked phone.');
   const screenshots = path.resolve(__dirname, '../out/tunnel-mobile-checks');
   await fs.mkdir(screenshots, { recursive: true });
-  let guestBrowser;
+  let guestBrowser, guest;
+  const tunnl = (process.env.TUNNEL_PROVIDER || 'tunnl') === 'tunnl';
   try {
     guestBrowser = await chromium.launch({ headless: true,
       ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) });
@@ -22,19 +23,30 @@ const { chromium } = require('playwright');
     await host.locator('#color-mode').selectOption('black');
     await host.locator('#match-type').selectOption('1');
     await host.locator('#timer').selectOption('0');
+    if (!tunnl) {
+      await host.locator('#tunnel-options summary').click();
+      await host.locator('#tunnel-provider').selectOption('cloudflare');
+    }
     await host.locator('#create-btn').click();
     await host.waitForFunction(() => document.getElementById('share-link').value.startsWith('https://') ||
       (!document.getElementById('create-btn').disabled && document.getElementById('tunnel-status').textContent), null, { timeout: 150000 });
     const link = await host.locator('#share-link').inputValue();
-    if (!/^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/game\/[a-f0-9]{12}$/.test(link)) {
+    if (!(tunnl ? /^https:\/\/[a-z0-9-]+\.tunnl\.gg\/game\/[a-f0-9]{12}$/ : /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/game\/[a-f0-9]{12}$/).test(link)) {
       throw new Error('Phone tunnel: ' + await host.locator('#tunnel-status').textContent());
     }
     assert.equal(await host.locator('#board').isVisible(), false);
-    const guest = await guestBrowser.newPage();
+    guest = await guestBrowser.newPage();
+    guest.on('pageerror', error => console.error('Guest script:', error.message));
+    guest.on('response', response => {
+      if (response.status() >= 400) console.error('Guest HTTP:', new URL(response.url()).pathname, response.status());
+    });
     guest.setDefaultTimeout(30000);
     for (let attempt = 0; ; attempt++) {
       try { await guest.goto(link, { timeout: 15000 }); break; }
       catch (error) { if (attempt >= 10) throw error; await new Promise(r => setTimeout(r, 2000)); }
+    }
+    if (tunnl && !await guest.locator('#board').count()) {
+      await guest.getByRole('button', { name: /continue|visit/i }).click();
     }
     await guest.locator('#board').waitFor();
     await host.locator('#turn-indicator').filter({ hasText: /Turn: BLACK/ }).waitFor();
@@ -54,9 +66,14 @@ const { chromium } = require('playwright');
     // The remote endpoint cannot access the native host's bundle or create another game.
     assert.equal((await guest.request.get(new URL('/mobile.js', link).href)).status(), 404);
     assert.equal((await guest.request.get(new URL('/capacitor.config.json', link).href)).status(), 404);
-    console.log('Android Cloudflare check passed: HTTPS invitation, desktop browser join, moves both ways, guest refresh, private host assets.');
+    console.log(`Android ${tunnl ? 'tunnl.gg' : 'Cloudflare'} check passed: HTTPS invitation, desktop browser join, moves both ways, guest refresh, private host assets.`);
     await host.locator('#mobile-home-button').click();
   } catch (error) {
+    console.error('Guest status:', await guest?.evaluate(() => ({
+      message: document.getElementById('message')?.textContent,
+      notice: document.getElementById('connection-notice')?.textContent,
+      screen: document.body.innerText.slice(0, 700),
+    })).catch(() => 'unavailable'));
     console.error('Host board:', await host.evaluate(() => ({
       turn: document.getElementById('turn-indicator').textContent,
       message: document.getElementById('message').textContent,

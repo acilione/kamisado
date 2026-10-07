@@ -206,6 +206,9 @@ function render(state) {
     const localSession = ready && state.localOnly;
     const peer = ready && Boolean(state.peerMode);
     const offline = localSession && !peer;
+    const preparingInvitation = ready && !localSession && tunnelSetup && state.connectivity.mode === 'direct' && !inGame;
+    statusPanel.dataset.state = preparingInvitation ? 'setup' : 'active';
+    document.getElementById('return-to-game').textContent = inGame ? 'Back to game' : 'Back to game settings';
     const hasToken = state.hasSavedNgrokToken || state.hasSessionNgrokToken;
     document.getElementById('local-origin').textContent = state.localOrigin || 'Not running';
     document.getElementById('port-description').textContent = state.port
@@ -240,11 +243,11 @@ function render(state) {
     peerJoinButton.classList.toggle('hidden', ready);
     document.getElementById('peer-help').classList.toggle('hidden', ready);
     document.querySelector('.connection-details').classList.toggle('hidden', localSession);
-    document.getElementById('switch-hint').classList.toggle('hidden', !ready || localSession);
+    document.getElementById('switch-hint').classList.toggle('hidden', !ready || localSession || !inGame);
     settingsButton.textContent = 'Connection';
     document.getElementById('session-hint').textContent = offline
         ? 'Offline play' : 'Keep this app open and this computer awake.';
-    document.getElementById('status-title').textContent = peer ? 'Your Internet game' : (offline ? 'Your computer game' : (state.connectivity?.title || 'Hosting is active'));
+    document.getElementById('status-title').textContent = preparingInvitation ? 'Ready for Internet play' : peer ? 'Your Internet game' : (offline ? 'Your computer game' : (state.connectivity?.title || 'Hosting is active'));
     document.getElementById('stop-hosting').textContent = localSession ? 'End session' : 'Stop hosting';
     document.getElementById('stop-title').textContent = localSession ? 'End this session?' : 'End hosting?';
     document.getElementById('stop-description').textContent = offline
@@ -256,13 +259,14 @@ function render(state) {
         ? (localSession ? 'Your session' : 'Connection settings') : 'Choose your game';
     document.getElementById('page-intro').textContent = ready
         ? (localSession ? 'Return to the board, or finish and choose a new game.' : 'Your game stays open while you manage its connection.')
-        : 'Play with a friend on your home network or over a direct Internet connection.';
+        : 'Choose how to connect. Your game runs on this device.';
 
     if (ready) {
         hideTokenSetup();
         const online = state.connectivity.mode !== 'direct';
-        document.getElementById('connection-label').textContent = peer ? 'Internet P2P' : (offline ? 'Computer' : (online ? state.connectivity.mode : (tunnelSetup ? 'Internet setup' : 'LAN')));
-        document.getElementById('status-description').textContent = offline
+        document.getElementById('connection-label').textContent = peer ? 'Internet P2P' : (offline ? 'Computer' : (online ? ({ cloudflare: 'Cloudflare', tunnl: 'tunnl.gg', ngrok: 'ngrok' }[state.connectivity.mode]) : (tunnelSetup ? 'Internet setup' : 'LAN')));
+        document.getElementById('status-description').textContent = preparingInvitation
+            ? 'Your invitation is created when you press Create game in the game settings.' : offline
             ? 'This session stays on this computer. To play across devices, end it and choose a connection.' : peer
             ? 'Your app connects directly to your friend. Both players keep their apps open; there is no central game server.' : online
             ? state.connectivity.description
@@ -287,7 +291,7 @@ onlineButton.addEventListener('click', () => {
     }
 });
 computerButton.addEventListener('click', () => startHosting({ mode: 'direct', localOnly: true }));
-document.getElementById('cloudflare-button').addEventListener('click', async () => {
+document.getElementById('internet-button').addEventListener('click', async () => {
     tunnelSetup = true;
     if (currentState?.status === 'ready' && !inGame) render(await api.stopHosting());
     await startHosting({ mode: 'direct' });
@@ -338,7 +342,7 @@ window.addEventListener('message', async event => {
             const { source, origin } = event;
             const { requestId, request } = event.data;
             try {
-                if (busy || currentState.localOnly || !['cloudflare', 'ngrok'].includes(request?.mode)) throw new Error('End the current connection before creating an Internet game.');
+                if (busy || currentState.localOnly || !['cloudflare', 'ngrok', 'tunnl'].includes(request?.mode)) throw new Error('End the current connection before creating an Internet game.');
                 setBusy(true, 'Preparing your invitation…');
                 const state = await api.startHosting({ mode: request.mode, authToken: request.authToken });
                 render(state);
@@ -452,6 +456,11 @@ document.querySelectorAll('[data-external]').forEach(button => {
 
 setBusy(true, 'Getting ready…');
 api.onInvitation?.(invitation => { void joinPeer(invitation); });
+api.onTunnelStatus?.(reconnecting => {
+    if (currentState?.connectivity?.mode === 'tunnl') {
+        document.getElementById('connection-label').textContent = reconnecting ? 'tunnl.gg · reconnecting…' : 'tunnl.gg';
+    }
+});
 api.onHostingStopped?.(async () => {
     render(await api.getState());
     showLocalError('The Internet tunnel stopped. Create a new game to get a fresh invitation.');

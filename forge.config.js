@@ -5,6 +5,7 @@ module.exports = {
   packagerConfig: {
     asar: {
       unpack: '**/*.node',
+      unpackDir: 'desktop/connectors',
     },
     executableName: 'Kamisado',
     protocols: [{ name: 'Kamisado invitation', schemes: ['kamisado'] }],
@@ -17,6 +18,7 @@ module.exports = {
       /^\/scripts($|\/)/,
       /^\/out($|\/)/,
       /^\/mobile($|\/)/,
+      /^\/native($|\/)/,
       /^\/node_modules\/@capacitor($|\/)/,
     ],
   },

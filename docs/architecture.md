@@ -31,7 +31,7 @@ src/
     preload.ts            Narrow API exposed to the launcher
     contracts.ts          Launcher API and state types
     hosting-controller.ts Server/connectivity transitions and credential handling
-    connectivity/         LAN, Cloudflare, ngrok, and provider lifecycle
+    connectivity/         LAN, Cloudflare, tunnl.gg, ngrok, and provider lifecycle
     token-vault.ts        Encrypted token file storage
   shared/
     types.ts              Game state, moves, settings, and socket contracts
@@ -39,6 +39,7 @@ src/
     ai-levels.ts          Ten difficulty profiles and search budgets
     invitation-url.ts     Invitation validation shared by browser and desktop
 public/                   Game HTML, CSS, and asset licenses
+native/tunnl/             Shared desktop/Android SSH transport; no game logic
 desktop/                  Launcher HTML/CSS/JavaScript and offline quickstart
 tests/                    Unit, integration, and browser checks
 scripts/                  Integration runner, relay helper, packaging checks
@@ -137,6 +138,10 @@ P2P invitations expire after 10 minutes. Manual setup allows up to 10 seconds fo
 Stopping or restarting the host discards all sessions immediately. Changing the host's address may also require guests to open the updated invitation; announcing a new origin does not move their existing connection. Tests cover local reconnection and cleanup, but local WebRTC tests cannot establish reachability across every Internet network.
 
 ## Tunnel invitations
+
+`native/tunnl/` is the same small Go SSH client on desktop and Android. It creates a dedicated Ed25519 identity in app-private storage, requests a stable tunnl.gg address, and forwards only to the local game port. It uses no personal SSH keys or agent. The server key is pinned; the pin was observed through Windows and Linux clients on 7 October 2026, not independently published by upstream. A changed key fails closed and requires a reviewed app update. Short disconnections trigger bounded reconnect attempts with the same identity; normal game reconnect timeouts still apply.
+
+The connector keeps its terminal input open, emits only structured status lines, bounds concurrent forwarded channels, and stops with the hosting session. Its Go tests exercise a local SSH relay, bidirectional forwarding, terminal lifetime, cancellation, identity persistence, and key rejection. Android bundles `libtunnl.so` alongside cloudflared and uses the same DNS adapter and HTTP bridge for both.
 
 `src/client/tunnel-panel.ts` is shared by desktop and Android. Creating a human game first asks the native host to prepare the chosen tunnel; failure leaves the settings intact. Computer games never start a tunnel. The invitation panel uses the returned public origin and the existing game ID.
 

@@ -8,6 +8,7 @@ const { _electron: electron, chromium } = require('playwright');
   if (!executablePath) throw new Error('Pass the packaged Kamisado executable path.');
   const profile = await fs.mkdtemp(path.join(os.tmpdir(), 'kamisado-tunnel-check-'));
   let app, browser;
+  const tunnl = (process.env.TUNNEL_PROVIDER || 'tunnl') === 'tunnl';
   try {
     const env = { ...process.env, KAMISADO_USER_DATA_DIR: profile };
     delete env.ELECTRON_RUN_AS_NODE;
@@ -15,17 +16,24 @@ const { _electron: electron, chromium } = require('playwright');
     const shell = await app.firstWindow();
     const host = shell.frameLocator('#game-frame');
     await host.locator('#color-mode').selectOption('black');
+    if (!tunnl) {
+      await host.locator('#tunnel-options summary').click();
+      await host.locator('#tunnel-provider').selectOption('cloudflare');
+    }
     await host.locator('#create-btn').click();
     const frame = shell.frames().find(f => f !== shell.mainFrame());
     await frame.waitForFunction(() => document.getElementById('share-link').value.startsWith('https://') ||
       (!document.getElementById('create-btn').disabled && document.getElementById('tunnel-status').textContent), null, { timeout: 250000 });
     if (!await host.locator('#share-link').isVisible()) throw new Error(await host.locator('#tunnel-status').textContent());
     const link = await host.locator('#share-link').inputValue();
-    assert.match(link, /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/game\/[a-f0-9]{12}$/);
+    assert.match(link, tunnl ? /^https:\/\/[a-z0-9-]+\.tunnl\.gg\/game\/[a-f0-9]{12}$/ : /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/game\/[a-f0-9]{12}$/);
     browser = await chromium.launch({ headless: true,
       ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE } : {}) });
     const guest = await browser.newPage();
     await guest.goto(link);
+    if (tunnl && !await guest.locator('#board').count()) {
+      await guest.getByRole('button', { name: /continue|visit/i }).click();
+    }
     await guest.locator('#board').waitFor();
     await host.locator('.cell[data-r="0"][data-c="0"]').click();
     await host.locator('.cell[data-r="1"][data-c="0"]').click();
@@ -37,7 +45,7 @@ const { _electron: electron, chromium } = require('playwright');
     await shell.locator('#stop-hosting').click();
     await shell.locator('#confirm-stop').click();
     await shell.waitForFunction(() => !document.getElementById('game-frame').hasAttribute('src'));
-    console.log('Packaged desktop Cloudflare passed: verified connector download, native IPC, HTTPS invitation, moves both ways, stop hosting.');
+    console.log(`Packaged desktop ${tunnl ? 'tunnl.gg' : 'Cloudflare'} passed: native IPC, HTTPS invitation, browser join, moves both ways, stop hosting.`);
   } catch (error) {
     const shell = app ? await app.firstWindow().catch(() => null) : null;
     if (shell) console.error('Tunnel status:', await shell.frameLocator('#game-frame').locator('#tunnel-status').textContent({ timeout: 1000 }).catch(() => 'unavailable'));

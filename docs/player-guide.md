@@ -94,14 +94,14 @@ If the other player has the desktop app too, **Join with a link** opens the invi
 ### Internet invitations
 
 1. Open the desktop or Android app and choose your game settings.
-2. Press **Create game**. Cloudflare is selected by default. The first desktop connection downloads its connector; Android includes it in the APK.
+2. Press **Create game**. tunnl.gg is selected by default, and its connector is included in both desktop and Android builds.
 3. Wait for the invitation, then press **Share link** (or **Copy link** if sharing is unavailable).
 4. Your friend opens the HTTPS link in a browser on their phone or computer. They do not need an account, password, or installed app.
 5. Keep the host app open and awake. On Android, return to the game after using the share sheet.
 
-Cloudflare Quick Tunnels require no account, domain, payment details, or TURN settings. They are a temporary testing service with no availability guarantee. If creation fails, retry; on desktop you can also select ngrok under **Internet connection**. Ending hosting invalidates the tunnel address, so send a fresh invitation after restarting.
+tunnl.gg requires no account, domain, payment details, or TURN settings. Your friend may need to continue through its welcome page before joining. If creation fails, retry or select Cloudflare under **Internet connection**; desktop also offers ngrok. After restarting the host, create a new game and share its invitation.
 
-A new address can take a little time to become reachable. If your friend's browser cannot find it, leave the host running and retry the same link after a minute. A Cloudflare **1033** page means the tunnel is disconnected: keep the host awake and connected while it reconnects. If that persists, return to the main menu, create another game, and share the new link.
+A new address can take a little time to become reachable. If your friend's browser cannot find it, leave the host running and retry the same link after a minute. With the optional Cloudflare service, a **1033** page means the tunnel is disconnected: keep the host awake and connected while it reconnects. If that persists, return to the main menu, create another game, and share the new link.
 
 To host with **ngrok** on desktop:
 
@@ -114,11 +114,11 @@ Only the host configures the account; invitations do not contain its token. To s
 
 Share invitations privately. Anyone holding one can try to join or watch. These services forward the connection and terminate HTTPS; they are not end-to-end-encrypted P2P connections. You do not need to run a permanent game server. [Cloudflare Quick Tunnel documentation](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)
 
-ngrok hosting is desktop-only. Android supports Cloudflare hosting; iPhones can join in Safari, while native iOS hosting retains the legacy P2P option.
+ngrok hosting is desktop-only. Android supports tunnl.gg and Cloudflare hosting; iPhones can join in Safari, while native iOS hosting retains the legacy P2P option.
 
 ### Over the Internet with P2P
 
-This is the legacy connection mode. On desktop, select **Connection → Legacy P2P hosting**. For new games, use Internet invitations above to avoid relay configuration.
+This is the legacy connection mode. On desktop, select **Connection → Other Internet connection options → Legacy P2P hosting**. For new games, use Internet invitations above to avoid relay configuration.
 
 
 Both players need an updated desktop or mobile app. The host's device runs the match.
@@ -222,6 +222,14 @@ This is an alternative for someone who wants to host with an ngrok account and l
 This mode sends traffic through ngrok's service. The guest needs neither the app nor an ngrok account. Saved credentials can be removed with **Forget** in the connection settings.
 
 The ngrok option tunnels the desktop game's HTTP/WebSocket server; it does not configure TURN. Use an ngrok authtoken in the ngrok connection settings, not in the TURN fields. A [TCP tunnel](https://ngrok.com/docs/gateway/endpoints/tcp) could expose a TURN server's TCP listener, but that alone would not make its UDP relay ports reachable: [TURN over TCP still uses UDP on the peer side](https://www.rfc-editor.org/rfc/rfc8656.html). For this game, the existing HTTPS invitation is the simpler ngrok route.
+
+## Through tunnl.gg
+
+tunnl.gg is selected automatically when you open the game settings. Choose your match options and press **Create game**, then use **Share link** to send the invitation. Your friend opens it in a browser; neither player needs an account, password, or SSH installation. To change services, expand **Internet connection** before creating the game.
+
+The browser may show a tunnl.gg welcome page before the game. Continue through it to join. Keep the host app open and, on Android, in the foreground. If the network drops briefly, Kamisado tries to reconnect with the same address; the game's normal disconnect countdown still applies.
+
+The [free service](https://tunnl.gg/docs) limits a tunnel to 24 hours and closes inactive tunnels after two hours. Networks that block outgoing SSH on port 22 may prevent hosting; choose Cloudflare before creating the game if that happens. Switching services requires a new invitation. Traffic passes through the provider's servers, which terminate HTTPS.
 
 ## Board and match controls
 

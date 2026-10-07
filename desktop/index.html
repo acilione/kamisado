@@ -20,7 +20,7 @@
         <header>
             <p class="eyebrow">Kamisado</p>
             <h1 id="page-title">Choose your game</h1>
-            <p id="page-intro" class="intro">Play with a friend on your home network or over a direct Internet connection.</p>
+            <p id="page-intro" class="intro">Choose how to connect. Your game runs on this device.</p>
         </header>
 
         <section id="status-panel" class="hidden" aria-label="Current connection">
@@ -51,31 +51,17 @@
         <section id="setup-panel" aria-label="Choose how to play">
             <p id="switch-hint" class="fine-print hidden">You can change the connection without leaving your game. Its invitation will update automatically.</p>
             <div class="quick-actions">
-                <button id="cloudflare-button" class="choice primary-choice" type="button">
+                <button id="internet-button" class="choice primary-choice" type="button">
+                    <span class="choice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg></span>
                     <span class="choice-copy"><span class="choice-title">Create an Internet game</span>
-                    <small>Choose your settings, then share a browser link. Cloudflare needs no account.</small></span>
-                </button>
-                <button id="peer-host-button" class="choice primary-choice" type="button">
-                    <span class="choice-icon" aria-hidden="true">↗</span>
-                    <span class="choice-copy">
-                        <span class="choice-title">Legacy P2P hosting</span>
-                        <small>Share an app link. Your friend opens it to join.</small>
-                    </span>
-                    <span class="arrow" aria-hidden="true">→</span>
-                </button>
-                <button id="peer-join-button" class="choice" type="button">
-                    <span class="choice-icon" aria-hidden="true">↙</span>
-                    <span class="choice-copy">
-                        <span class="choice-title">Join Internet game</span>
-                        <small>Open or paste your friend's invitation link. No account needed.</small>
-                    </span>
+                    <small>A browser link for a friend anywhere.</small><span class="choice-tag">No account needed</span></span>
                     <span class="arrow" aria-hidden="true">→</span>
                 </button>
                 <button id="lan-button" class="choice" type="button">
-                    <span class="choice-icon" aria-hidden="true">⌂</span>
+                    <span class="choice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 10 12 3l9 7M5 9v12h14V9M9 21v-8h6v8"/></svg></span>
                     <span class="choice-copy">
                         <span class="choice-title">Host a LAN game</span>
-                        <small>Same Wi-Fi or Ethernet network. No account or Internet connection needed.</small>
+                        <small>Play together on the same Wi-Fi or Ethernet.</small><span class="choice-tag">Works without Internet</span>
                     </span>
                     <span class="arrow" aria-hidden="true">→</span>
                 </button>
@@ -89,20 +75,24 @@
                 </button>
             </div>
 
-            <p id="peer-help" class="fine-print peer-help">Cloudflare is the default for new Internet games. ngrok is available in Game settings → Internet connection. Legacy P2P still accepts existing app invitations.</p>
+            <p id="peer-help" class="fine-print peer-help">Internet games use tunnl.gg. You can choose Cloudflare or ngrok in the game settings.</p>
             <ol id="host-steps" class="host-steps" aria-label="How to host a LAN game">
-                <li>Host a LAN game, then choose your game options.</li>
-                <li>Share the invitation link or let your friend scan its QR code.</li>
-                <li>Keep this app open and this computer awake while you play.</li>
+                <li>Choose settings</li>
+                <li>Create your game</li>
+                <li>Share the invitation</li>
             </ol>
 
             <details id="internet-options">
                 <summary>Other Internet connection options</summary>
                 <div class="advanced-content">
-                    <p>For direct play over the Internet, connect both computers to the same private VPN and use the LAN invitation. Setting up the VPN is separate from this app.</p>
-                    <p>Alternatively, ngrok relays the connection through its service. It needs Internet access and an ngrok account on the host computer.</p>
+                    <p>Use your ngrok account, or open an existing P2P invitation.</p>
                     <button id="online-button" type="button">Connect with ngrok</button>
                     <p id="online-description" class="fine-print">Only the host needs an account. Guests join in their browser.</p>
+                    <div class="legacy-actions">
+                        <button id="peer-host-button" type="button">Legacy P2P hosting</button>
+                        <button id="peer-join-button" type="button">Join P2P invitation</button>
+                    </div>
+                    <p class="fine-print">P2P may need a TURN relay. For a shared private VPN, use LAN hosting.</p>
                 </div>
             </details>
 
@@ -143,11 +133,11 @@
 
         <section id="join-panel" class="join-card" aria-labelledby="join-title">
             <h2 id="join-title">Join with a link</h2>
-            <p>App links open here. LAN links open in your browser.</p>
+            <p>Have an invitation? Paste it here to join your friend.</p>
             <form id="join-form">
                 <label for="join-invitation">Invitation link</label>
                 <div class="join-fields">
-                    <input id="join-invitation" type="text" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="http://192.168.1.10:32145/game/…" aria-describedby="join-help join-result" required>
+                    <input id="join-invitation" type="text" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Paste an invitation link" aria-describedby="join-help join-result" required>
                     <button id="join-button" type="submit">Join game</button>
                 </div>
                 <p id="join-help" class="fine-print">For LAN games, connect to the same home network as the host.</p>
