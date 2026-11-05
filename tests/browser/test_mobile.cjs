@@ -16,18 +16,30 @@ async function playFirstMove(page) {
   await page.locator('.cell[data-r="1"][data-c="0"]').tap();
 }
 async function connect(host, guest) {
-  for (const page of [host, guest]) {
-    await page.locator('#peer-advanced > summary').click();
-    await page.locator('#peer-method').selectOption('manual');
+  // These tests disable external STUN/TURN. WebKit otherwise hides local ICE
+  // addresses from data-only connections. Its mock camera unlocks those
+  // addresses without requiring a real camera or an Internet service.
+  if (process.env.MOBILE_BROWSER === 'webkit') {
+    for (const page of [host, guest]) {
+      await page.context().grantPermissions(['camera']);
+      await page.evaluate(async () => {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream.getTracks().forEach(track => track.stop());
+      });
+    }
   }
-  await host.locator('#peer-generate').click();
-  await host.waitForFunction(() => document.getElementById('peer-outgoing').value.startsWith('KAMISADO1.'));
-  await guest.locator('#peer-incoming').fill(await host.locator('#peer-outgoing').inputValue());
-  await guest.locator('#peer-generate').click();
-  await guest.waitForFunction(() => document.getElementById('peer-outgoing').value.startsWith('KAMISADO1.'));
-  await host.locator('#peer-incoming').fill(await guest.locator('#peer-outgoing').inputValue());
-  await host.locator('#peer-connect').click();
   try {
+    for (const page of [host, guest]) {
+      await page.locator('#peer-advanced > summary').click();
+      await page.locator('#peer-method').selectOption('manual');
+    }
+    await host.locator('#peer-generate').click();
+    await host.waitForFunction(() => document.getElementById('peer-outgoing').value.startsWith('KAMISADO1.'));
+    await guest.locator('#peer-incoming').fill(await host.locator('#peer-outgoing').inputValue());
+    await guest.locator('#peer-generate').click();
+    await guest.waitForFunction(() => document.getElementById('peer-outgoing').value.startsWith('KAMISADO1.'));
+    await host.locator('#peer-incoming').fill(await guest.locator('#peer-outgoing').inputValue());
+    await host.locator('#peer-connect').click();
     // The transport allows 30 seconds for ICE/DTLS. A 15-second UI timeout
     // can fail a valid WebKit connection on the hosted runner before that.
     await guest.locator('#game-screen').waitFor({ timeout: 35000 });
