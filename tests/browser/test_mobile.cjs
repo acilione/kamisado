@@ -23,8 +23,9 @@ async function connect(host, guest) {
     for (const page of [host, guest]) {
       await page.context().grantPermissions(['camera']);
       await page.evaluate(async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        stream.getTracks().forEach(track => track.stop());
+        // Keep capture active through ICE gathering; stopping it immediately
+        // lets WebKit reinstate candidate filtering before the guest answers.
+        window.mobileTestStream = await navigator.mediaDevices.getUserMedia({ video: true });
       });
     }
   }
@@ -60,6 +61,9 @@ async function connect(host, guest) {
     throw error;
   }
   await host.waitForFunction(() => !document.getElementById('turn-indicator').textContent.includes('Waiting for opponent'));
+  for (const page of [host, guest]) {
+    await page.evaluate(() => window.mobileTestStream?.getTracks().forEach(track => track.stop()));
+  }
 }
 
 async function run() {
