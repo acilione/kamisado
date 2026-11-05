@@ -16,7 +16,7 @@ For an unlocked Android test phone with its WebView forwarded to port 9223, `nod
 
 For installation and play instructions, see the [README](../README.md) and [player guide](player-guide.md). This guide covers building, testing, and packaging from source.
 
-Install Git and Node.js **22.12 or newer**, including npm. Node.js 24 is recommended; CI runs the main test suite on Node.js 22 and 24.
+Install Git and **Node.js 26.13.0 LTS**, including its bundled npm 11.20.0. All workflows read the same version from [`.nvmrc`](../.nvmrc), including desktop packaging and mobile builds. Electron supplies its own embedded runtime to players; changing the build-time Node.js version does not replace Electron's runtime.
 
 ## Get the source
 
@@ -27,6 +27,8 @@ npm ci
 ```
 
 Run the commands below from this directory. `npm ci` installs the versions recorded in `package-lock.json`. An Internet connection is needed to download the dependencies and Electron runtime.
+
+If you use nvm on Linux or macOS, run `nvm install` and `nvm use` from the repository root before `npm ci`. On Windows, install the version in `.nvmrc` with your preferred Node version manager or the official installer. Use the bundled npm when updating `package-lock.json`; check both `node --version` and `npm --version` when diagnosing an installation failure.
 
 ## Run the web application
 
@@ -200,7 +202,7 @@ To test the optional ngrok relay from source, build first, set `NGROK_AUTHTOKEN`
 
 ## CI and releases
 
-[`ci.yml`](../.github/workflows/ci.yml) runs `npm test` on Node.js 22 and 24, browser tests on Node.js 24, and a Windows package-and-launch test. [`release.yml`](../.github/workflows/release.yml), named **Desktop downloads**, validates the code, makes Windows x64 and Linux x64 downloads, and launches each packaged build before collecting artifacts.
+[`ci.yml`](../.github/workflows/ci.yml) runs `npm test`, browser tests, and a Windows package-and-launch test on the Node.js version in `.nvmrc`. There is one Node.js target; browser checks always run. [`release.yml`](../.github/workflows/release.yml), named **Desktop downloads**, validates the code, makes Windows x64 and Linux x64 downloads, and launches each packaged build before collecting artifacts. The mobile workflow uses the same Node.js pin.
 
 For a candidate build, run **Desktop downloads** manually in GitHub Actions. It uploads workflow artifacts retained for 14 days and does not create a release. For a versioned release:
 

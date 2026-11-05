@@ -48,7 +48,7 @@ Keep the host app open and the device awake during a match. On Android, return t
 
 ## Build and run from source
 
-Install Git and Node.js **22.12 or newer** with npm; Node.js 24 is recommended. Get the source using the [developer setup](docs/development.md#get-the-source), then run this once from the repository root:
+Install Git and **Node.js 26.13.0 LTS**, including its bundled npm 11.20.0. The version is pinned in [`.nvmrc`](.nvmrc) and shared by all CI, desktop, and mobile builds. Get the source using the [developer setup](docs/development.md#get-the-source), then run this once from the repository root:
 
 ```sh
 npm ci
