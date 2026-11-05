@@ -156,7 +156,10 @@ async function run() {
     await move(host, 0, 4, 1, 4);
     await guest.locator(cell(1, 4) + ' .piece.black.yellow').waitFor();
     await move(guest, 7, 6, 6, 6);
-    await host.locator(cell(6, 6) + ' .piece.white.blue').waitFor();
+    // The host receives the authoritative update before forwarding it over
+    // WebRTC. Wait for both renders before comparing the board snapshots.
+    await Promise.all([host, guest].map(page =>
+      page.locator(cell(6, 6) + ' .piece.white.blue').waitFor()));
     assert.deepEqual(await boardPosition(host), await boardPosition(guest), 'Both peers must see the same authoritative board after each side moves');
 
     await guest.locator('#game-symbol-mode').check();

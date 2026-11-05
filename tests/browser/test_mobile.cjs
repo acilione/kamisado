@@ -185,7 +185,8 @@ async function run() {
       await guest.page.locator('.cell[data-r="1"][data-c="0"] .piece.black').waitFor();
       await guest.page.locator('.cell[data-r="7"][data-c="2"]').tap();
       await guest.page.locator('.cell[data-r="6"][data-c="2"]').tap();
-      await host.page.waitForFunction(() => [...document.querySelectorAll('.piece.white')].some(p => p.parentElement.dataset.r !== '7'));
+      await Promise.all([host.page, guest.page].map(page =>
+        page.locator('.cell[data-r="6"][data-c="2"] .piece.white').waitFor()));
       assert.deepEqual(await pieces(host.page), await pieces(guest.page), 'Mobile and desktop have identical boards');
       if (mobileHosts) {
         await host.page.locator('#mobile-home-button').tap();
