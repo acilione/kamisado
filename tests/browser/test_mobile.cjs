@@ -27,7 +27,26 @@ async function connect(host, guest) {
   await guest.waitForFunction(() => document.getElementById('peer-outgoing').value.startsWith('KAMISADO1.'));
   await host.locator('#peer-incoming').fill(await guest.locator('#peer-outgoing').inputValue());
   await host.locator('#peer-connect').click();
-  await guest.locator('#game-screen').waitFor();
+  try {
+    // The transport allows 30 seconds for ICE/DTLS. A 15-second UI timeout
+    // can fail a valid WebKit connection on the hosted runner before that.
+    await guest.locator('#game-screen').waitFor({ timeout: 35000 });
+  } catch (error) {
+    for (const [role, page] of [['host', host], ['guest', guest]]) {
+      console.error(`Mobile P2P ${role}:`, await page.evaluate(async () => ({
+        status: document.getElementById('peer-status')?.textContent,
+        peers: await Promise.all((window.mobilePeerConnections || []).map(async peer => ({
+          connection: peer.connectionState, ice: peer.iceConnectionState,
+          gathering: peer.iceGatheringState, signaling: peer.signalingState,
+          candidates: [...(await peer.getStats()).values()]
+            .filter(stat => ['candidate-pair', 'local-candidate', 'remote-candidate'].includes(stat.type))
+            .map(({ type, state, nominated, candidateType, protocol, address, port }) =>
+              ({ type, state, nominated, candidateType, protocol, address, port })),
+        }))),
+      })));
+    }
+    throw error;
+  }
   await host.waitForFunction(() => !document.getElementById('turn-indicator').textContent.includes('Waiting for opponent'));
 }
 
@@ -59,8 +78,12 @@ async function run() {
           }
         };
         const Native = window.RTCPeerConnection;
+        window.mobilePeerConnections = [];
         window.RTCPeerConnection = class extends Native {
-          constructor(config) { super({ ...config, iceServers: [] }); }
+          constructor(config) {
+            super({ ...config, iceServers: [] });
+            window.mobilePeerConnections.push(this);
+          }
         };
       });
       const page = await ctx.newPage();
