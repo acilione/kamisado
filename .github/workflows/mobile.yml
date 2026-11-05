@@ -14,8 +14,17 @@ concurrency:
 
 jobs:
   web:
-    name: Mobile game (Chromium and WebKit)
-    runs-on: ubuntu-latest
+    name: Mobile game (${{ matrix.browser }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            os: ubuntu-latest
+          # macOS WebKit uses the networking stack closest to Safari/iOS.
+          - browser: webkit
+            os: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -24,11 +33,10 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium webkit
+      - run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: npm run test:mobile
-      - run: node tests/browser/test_mobile.cjs
         env:
-          MOBILE_BROWSER: webkit
+          MOBILE_BROWSER: ${{ matrix.browser }}
 
   android:
     name: Android APK

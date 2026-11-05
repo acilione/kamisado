@@ -33,7 +33,7 @@ async function connect(host, guest) {
     await guest.locator('#game-screen').waitFor({ timeout: 35000 });
   } catch (error) {
     for (const [role, page] of [['host', host], ['guest', guest]]) {
-      console.error(`Mobile P2P ${role}:`, await page.evaluate(async () => ({
+      console.error(`Mobile P2P ${role}:`, JSON.stringify(await page.evaluate(async () => ({
         status: document.getElementById('peer-status')?.textContent,
         peers: await Promise.all((window.mobilePeerConnections || []).map(async peer => ({
           connection: peer.connectionState, ice: peer.iceConnectionState,
@@ -43,7 +43,7 @@ async function connect(host, guest) {
             .map(({ type, state, nominated, candidateType, protocol, address, port }) =>
               ({ type, state, nominated, candidateType, protocol, address, port })),
         }))),
-      })));
+      })), null, 2));
     }
     throw error;
   }
