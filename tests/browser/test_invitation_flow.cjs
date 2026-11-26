@@ -80,6 +80,7 @@ async function run() {
     page.setDefaultTimeout(15000);
     await page.goto(localOrigin);
     await page.locator('#color-mode').selectOption('black');
+    await page.locator('button[data-play-mode="host"]').click();
     await page.locator('#create-btn').click();
     await page.locator('#game-screen').waitFor({ state: 'visible' });
     const gamePath = new URL(page.url()).pathname;
@@ -120,6 +121,7 @@ async function run() {
     await guestPage.goto(`http://localhost:${server.port}`);
     await guestPage.waitForFunction(() => !document.getElementById('join-btn').disabled);
     assert.equal(new URL(guestPage.url()).hostname, 'localhost');
+    await guestPage.locator('button[data-play-mode="join"]').click();
     await guestPage.locator('#join-id').fill(invitation);
     await Promise.all([
       guestPage.waitForURL(invitation),
@@ -162,6 +164,7 @@ async function run() {
     assert.equal(await invalidPage.locator('#join-btn').isDisabled(), false);
     assert.equal(await invalidPage.locator('#invite-panel').isVisible(), false);
     assert.equal(rejectedInvitations.length, 1, 'the invalid invitation must be explained once');
+    await invalidPage.locator('button[data-play-mode="host"]').click();
     await invalidPage.locator('#create-btn').click();
     await invalidPage.locator('#game-screen').waitFor({ state: 'visible' });
     assert.match(new URL(invalidPage.url()).pathname, /^\/game\/[a-f0-9]{12}$/);

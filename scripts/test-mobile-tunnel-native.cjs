@@ -17,9 +17,12 @@ const { chromium } = require('playwright');
     host.setDefaultTimeout(20000);
     host.on('dialog', dialog => dialog.accept());
     const documentStarted = await host.evaluate(() => performance.timeOrigin);
-    await host.locator('#mobile-home-button').click();
-    await host.waitForFunction(previous => performance.timeOrigin !== previous, documentStarted);
+    if (await host.locator('#mobile-home-button').isVisible()) {
+      await host.locator('#mobile-home-button').click();
+      await host.waitForFunction(previous => performance.timeOrigin !== previous, documentStarted);
+    }
     await host.waitForFunction(() => !document.getElementById('create-btn').disabled);
+    await host.locator('button[data-play-mode="host"]').click();
     await host.locator('#color-mode').selectOption('black');
     await host.locator('#match-type').selectOption('1');
     await host.locator('#timer').selectOption('0');

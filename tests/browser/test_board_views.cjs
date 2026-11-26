@@ -216,9 +216,9 @@ async function click3DCell(page, r, c, black, tower, touch = false) {
   const box = await page.locator('#board-3d canvas').boundingBox();
   assert.ok(box, 'the 3D board must be visible for pointer input');
   const camera = new PerspectiveCamera(38, box.width / box.height, 0.1, 100);
-  camera.position.set(0, 10.8, 11.8);
-  camera.lookAt(0, 0.2, 0);
-  camera.updateMatrixWorld();
+  camera.fov = 2 * Math.atan(Math.tan(38 * Math.PI / 360) / Math.min(1, camera.aspect)) * 180 / Math.PI;
+  camera.updateProjectionMatrix();
+  require('../../dist/client/board-camera.js').frameBoardCamera(camera);
   const facing = black ? -1 : 1;
   const point = new Vector3((c - 3.5) * facing, tower ? 0.727 : 0.239, (r - 3.5) * facing).project(camera);
   const x = box.x + (point.x + 1) * box.width / 2;
@@ -360,6 +360,7 @@ async function run() {
     assert.equal(await page.locator('#board-view').inputValue(), 'realistic-2d', 'board preference must survive a reload');
     assert.equal(await page.locator('#symbol-mode').isChecked(), true, 'symbol preference must survive a reload');
     await page.screenshot({ path: path.join(screenshots, 'menu-desktop.png'), fullPage: true });
+    await page.locator('button[data-play-mode="host"]').click();
     await page.locator('#create-btn').click();
     await page.locator('#game-screen').waitFor({ state: 'visible' });
     await assert2DBoard(page, true);

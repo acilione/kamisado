@@ -19,12 +19,14 @@ src/
       worker.ts           Worker-thread message entry point
   client/
     client.ts             Browser entry point, actions, state updates, rendering
+    main-menu.ts          Computer, host, and join views sharing one settings form
     invitation.ts         Shared invitation URL, clipboard, and QR display
     peer-panel.ts         Quick connect, manual exchange, and relay controls
     automatic-peer.ts     PeerJS signaling and invitation authentication
     p2p-transport.ts       WebRTC channel and host-side Socket.IO proxy
     realistic-art.ts      Shared palette, character markings, and SVG towers
     board-3d.ts            Three.js board, picking, camera, and resource disposal
+    board-camera.ts        Responsive initial framing and reset view
   mobile/                 Capacitor launcher, local event transport, Web Worker adapter
   desktop/
     main.ts               Electron window, trusted IPC, startup, and shutdown

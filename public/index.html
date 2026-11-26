@@ -94,11 +94,20 @@
             <p id="peer-code-help" class="option-help">Keep both apps open while connecting and playing. Both connection choices use kamisado://join/ links. Changing the host's connection settings requires a new invitation; an automatic TURN retry keeps the same link.</p>
         </details>
         <!-- Menu Screen -->
-        <div id="menu-screen">
+        <div id="menu-screen" data-play-mode="computer">
             <h1>Kamisado</h1>
             <p class="tagline">Color decides your next move.</p>
+            <nav id="play-mode-picker" aria-label="Choose how to play">
+                <button type="button" data-play-mode="computer" aria-pressed="true"><strong>Computer</strong><small>Practice at your pace</small></button>
+                <button type="button" data-play-mode="host" aria-pressed="false"><strong>Host game</strong><small>Invite a friend</small></button>
+                <button type="button" data-play-mode="join" aria-pressed="false"><strong>Join game</strong><small>Use an invitation</small></button>
+            </nav>
+            <div class="menu-intro">
+                <h2 id="play-mode-title">Play the computer</h2>
+                <p id="play-mode-description">Choose a difficulty, set up your match, and play.</p>
+            </div>
             <div id="create-game-options" class="menu-group">
-                <h3>Game settings</h3>
+                <h3 class="sr-only">Game settings</h3>
                 <details id="tunnel-options" class="hidden">
                     <summary><span class="tunnel-summary-copy">Internet connection<small>Create a link for your friend</small></span><span id="tunnel-selection" class="tunnel-selection">tunnl.gg · no account</span></summary>
                     <div class="tunnel-settings-body">
@@ -125,21 +134,22 @@
                     </select>
                 </label>
                 <div id="computer-options">
-                    <label for="ai-level">Computer difficulty:
+                    <label for="ai-level">Difficulty
                         <select id="ai-level" aria-describedby="ai-level-help"></select>
                     </label>
-                    <p id="ai-level-help" class="option-help">Ten levels, from forgiving to challenging. Works offline in the desktop and mobile apps.</p>
+                    <p id="ai-level-help" class="option-help">Ten levels. Offline in the desktop and mobile apps.</p>
                 </div>
+                <div class="match-settings-grid">
                 <div class="form-group">
-                    <label for="match-type">Match Length:</label>
+                    <label for="match-type">Match length</label>
                     <select id="match-type">
-                        <option value="1">Single Round (1 Pt)</option>
-                        <option value="3" selected>Standard (3 Pts)</option>
-                        <option value="7">Long (7 Pts)</option>
-                        <option value="15">Marathon (15 Pts)</option>
+                        <option value="1">Single round</option>
+                        <option value="3" selected>3 points</option>
+                        <option value="7">7 points</option>
+                        <option value="15">15 points</option>
                     </select>
                 </div>
-                <label>Time Limit: <select id="timer">
+                <label>Time per player <select id="timer">
                         <option value="0">No Limit</option>
                         <option value="60">1 Minute</option>
                         <option value="180">3 Minutes</option>
@@ -147,20 +157,21 @@
                         <option value="600">10 Minutes</option>
                         <option value="1800">30 Minutes</option>
                     </select></label>
-                <label>Color:
+                <label>Your side
                     <select id="color-mode">
                         <option value="random">Random</option>
                         <option value="black">Black</option>
                         <option value="white">White</option>
                     </select>
                 </label>
-                <label>Position Mode:
+                <label>Starting positions
                     <select id="position-mode">
                         <option value="standard">Standard</option>
                         <option value="fill">Fill (Advanced)</option>
                         <option value="random">Random</option>
                     </select>
                 </label>
+                </div>
                 <div class="menu-display-option">
                     <label class="board-view-label" for="board-view">
                         Board view
@@ -198,8 +209,8 @@
                     <p id="turn-provider-status" role="status" aria-live="polite"></p>
                 </details>
                 <div class="game-actions">
-                    <button id="play-computer-btn" type="button" disabled>Play with computer</button>
-                    <button id="create-btn" type="button" disabled>Create game</button>
+                    <button id="play-computer-btn" type="button" disabled>Start game</button>
+                    <button id="create-btn" type="button" disabled>Create game &amp; invite</button>
                 </div>
             </div>
 

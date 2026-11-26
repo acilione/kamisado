@@ -89,6 +89,13 @@ test('Android collection names the test APK and includes installation instructio
   assert.match(await fs.readFile(path.join(result.destination, 'START-HERE-Android.txt'), 'utf8'), /open it to install/);
   assert.equal(await verifyChecksums(result.destination, 'SHA256SUMS-Android.txt'), 3);
   await assert.rejects(collectAndroid({ source, destination: result.destination }), /Release output must be empty/);
+  const release = await collectAndroid({ source, variant: 'release',
+    destination: path.join(files.destination, 'release'), version: '1.0.0' });
+  assert.equal(release.downloadName, 'Kamisado-1.0.0-Android.apk');
+  const instructions = await fs.readFile(path.join(release.destination, 'START-HERE-Android.txt'), 'utf8');
+  assert.match(instructions, /optimized release build/);
+  assert.doesNotMatch(instructions, /development-signed test build/);
+  assert.equal(await verifyChecksums(release.destination, 'SHA256SUMS-Android.txt'), 3);
 });
 
 test('packaged ZIP includes a quickstart beside the executable and only portable makers are enabled', async t => {

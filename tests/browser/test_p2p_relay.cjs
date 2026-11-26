@@ -39,6 +39,7 @@ async function run() {
     }
     await host.goto(`http://127.0.0.1:${server.port}/?peer=host`);
     await guest.goto(`http://127.0.0.1:${mobile.address().port}`);
+    await guest.locator('button[data-play-mode="join"]').click();
     await guest.locator('#join-peer-btn').click();
     await host.locator('#color-mode').selectOption('black');
     await host.locator('#create-btn').click();

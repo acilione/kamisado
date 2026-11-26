@@ -99,7 +99,11 @@ async function run() {
       }
       await host.goto(mobileHosts ? mobileOrigin : gameOrigin + '/?peer=host');
       await guest.goto(mobileHosts ? gameOrigin + '/?peer=guest' : mobileOrigin);
-      if (!mobileHosts) await guest.locator('#join-peer-btn').click();
+      if (!mobileHosts) {
+        await guest.locator('button[data-play-mode="join"]').click();
+        await guest.locator('#join-peer-btn').click();
+      }
+      await host.locator('button[data-play-mode="host"]').click();
       assert.equal(await host.locator('#peer-panel').isVisible(), false, 'Settings precede invitation controls');
       assert.equal(await host.locator('#peer-steps').isVisible(), false, 'Manual signaling stays out of the quick flow');
       assert.equal(await host.locator('#peer-use-relay').isEnabled(), true);

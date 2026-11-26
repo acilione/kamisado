@@ -10,7 +10,7 @@ Open `out/release/Android/` in a local build, or get a Kamisado `.apk` supplied 
 
 After building, `npm run release:android` collects the APK, start guide, and checksums in `out/release/Android/`. Move an older `Android` output folder elsewhere before collecting another build.
 
-The project currently produces a **debug APK** for testing. It is signed with a development key and is not a Google Play release. Updates built on a different machine may require uninstalling the earlier test app first, which removes its preferences. A public release should use a stable signing key.
+Use the **release APK** for playing. It has optimized code and resources and uses a separate release signing key. The **debug APK** is for development. Switching between the two requires uninstalling the previous app, which removes its preferences. Keep the same release key for future updates; neither build is currently published on Google Play.
 
 Android 7.0 or newer is required, with Android System WebView 100 or newer. Keep WebView up to date. Devices without usable WebGL fall back to the 2D board.
 
@@ -22,9 +22,9 @@ You can also join a desktop LAN game now by opening its invitation link in Safar
 
 ### Game modes
 
-- **Play with computer:** choose settings and press the button. All ten levels work offline.
-- **Create game on Android:** choose settings, then press **Create game**. tunnl.gg opens the connection by default. Press **Share link**, send the invitation, then return to Kamisado. Your friend opens the link in a browser, without an account or app installation.
-- **Join a game:** open the HTTPS invitation in your browser, or paste it into the app's join field. Legacy `kamisado://join/` invitations still open the P2P join screen.
+- **Computer:** choose a difficulty and match settings, then press **Start game**. All ten levels work offline.
+- **Host game:** choose settings, then press **Create game & invite**. On Android, tunnl.gg opens the connection by default. Press **Share link**, send the invitation, then return to Kamisado. Your friend opens the link in a browser, without an account or app installation.
+- **Join game:** open the HTTPS invitation in your browser, or select **Join game** in the app and paste it there. Your host chooses the match settings. Legacy `kamisado://join/` invitations still open the P2P join screen.
 
 Cloudflare and tunnl.gg hosting require Android 10 or newer and are included for arm64 and x86_64 builds. tunnl.gg is selected by default under **Internet connection**; no account or credentials are needed. Its browser welcome page may appear before your friend joins. Older supported Android versions can still play offline and join in a browser. No Termux or router setup is needed. The host phone must remain awake with Kamisado in the foreground; locking it or switching away for an extended period can interrupt the game. There is no background service or permanent wake lock. Hosting keeps a connector and the game WebView running, so it uses more battery than joining; battery consumption has not been benchmarked. Keep brightness modest and use a charger for long games.
 
@@ -84,6 +84,37 @@ cd mobile/android
 In Windows PowerShell, use `.\gradlew.bat assembleDebug`. The APK is written to `mobile/android/app/build/outputs/apk/debug/app-debug.apk`. Build on the same operating system as your SDK; a Windows SDK cannot be used directly by Linux Gradle in WSL.
 
 For distribution, use Android Studio's **Generate Signed App Bundle or APK** flow and retain the signing key outside Git. See [Android's signing guide](https://developer.android.com/studio/publish/app-signing). A debug APK is suitable for testing; Google Play distribution needs a signed release bundle.
+
+#### Signed release APK
+
+The command-line build reads signing settings from `~/.kamisado/android-signing.properties` (`%USERPROFILE%\.kamisado\android-signing.properties` on Windows). To use another file, set `KAMISADO_ANDROID_SIGNING_PROPERTIES` to its absolute path. Keep this file and the keystore outside the repository, restrict access to your account, and back them up together. Future updates need the same signing key.
+
+The properties file contains:
+
+```properties
+storeFile=/absolute/path/to/android-release.p12
+storePassword=your-keystore-password
+keyAlias=kamisado-release
+keyPassword=your-key-password
+```
+
+On Windows, use forward slashes in `storeFile`, for example `C:/Users/your-name/.kamisado/android-release.p12`. Use paths belonging to the operating system running Gradle. You can create a keystore through Android Studio's signing dialog or `keytool`; do not generate a new key for each build.
+
+After building the native connectors as described above, run from the repository root:
+
+```sh
+npm run mobile:sync:release
+./mobile/android/gradlew -p mobile/android assembleRelease
+npm run release:android:signed
+```
+
+In PowerShell, replace the Gradle command with `.\mobile\android\gradlew.bat -p mobile/android assembleRelease`. The result is `mobile/android/app/build/outputs/apk/release/app-release.apk`. The collection command copies it to `out/release/Android/Kamisado-1.0.0-Android.apk`, with installation instructions and checksums. Move any previous output elsewhere before collecting a new build.
+
+Release builds use R8 code optimization, obfuscation and resource shrinking. The main JavaScript bundle, embedded AI worker, browser guest bundle and CSS are minified too. Capacitor's consumer rules preserve the native plugin bridge. Keep `mobile/android/app/build/outputs/mapping/release/mapping.txt` with each release so obfuscated crash traces can be decoded. Native tunnel binaries already have their Go debug information removed and remain identical between debug and release.
+
+Without a signing properties file, Gradle produces `app-release-unsigned.apk`. This is useful for CI validation but cannot be installed until signed. A release APK signed with your own key cannot replace an installed debug APK signed with a different key: uninstall the debug app first, which removes its saved settings. Later releases using the same key can update the release app normally.
+
+Run `npm run test:mobile:release` to exercise the minified game, including all ten offline AI levels and multiplayer. `MOBILE_BROWSER=webkit` selects WebKit on Linux/macOS; set `$env:MOBILE_BROWSER='webkit'` in PowerShell.
 
 ### iOS build
 
@@ -145,7 +176,7 @@ MOBILE_BROWSER=webkit node tests/browser/test_mobile.cjs
 
 In PowerShell, set `$env:MOBILE_BROWSER = 'webkit'` before running the Node command. Browser WebKit tests exercise the web code; they do not replace native iPhone testing.
 
-The **Mobile apps** workflow builds an Android debug APK, compiles an unsigned iOS simulator app, and runs the mobile browser tests. Its Android artifact can be downloaded from the completed Actions run for 14 days; extract the downloaded ZIP to get `app-debug.apk`. These builds do not publish to an app store.
+The **Mobile apps** workflow builds an Android debug APK and an optimized unsigned release APK, compiles an unsigned iOS simulator app, and runs both debug and minified mobile browser tests. Its Android artifacts can be downloaded from the completed Actions run for 14 days. `Kamisado-Android-test` contains an installable development-signed APK; `Kamisado-Android-release-unsigned` contains the unsigned release APK and R8 mapping file. These builds do not publish to an app store or use your private release key.
 
 For a native Android smoke test, install a debug APK on a test phone or emulator and open its main menu. Enable USB debugging, find the app process with `adb shell pidof io.github.acilione.kamisado`, and forward its WebView socket:
 

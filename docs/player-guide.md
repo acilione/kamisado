@@ -12,7 +12,7 @@ There are no published releases or public installer downloads yet. You can [buil
 | --- | --- |
 | Windows, Intel or AMD 64-bit | `Windows-desktop/Kamisado-<version>-Windows-x64-portable.zip` |
 | Linux, Intel or AMD 64-bit | `Linux-desktop/Kamisado-<version>-Linux-x64-portable.zip` |
-| Android | `Android/Kamisado-<version>-Android-test.apk` |
+| Android | `Kamisado-<version>-Android.apk` (release), or `Android-test.apk` for development |
 | Mac with Apple silicon | `Kamisado-<version>-macOS-arm64-portable.zip`, if supplied by the maintainer |
 | Mac with an Intel processor | `Kamisado-<version>-macOS-x64-portable.zip`, if supplied by the maintainer |
 
@@ -73,9 +73,9 @@ A failed direct connection does not identify WSL as the cause. Routers, mobile c
 
 ### Against the computer
 
-1. Open the app. The game settings appear first.
+1. Open the app and select **Computer** in the game menu.
 2. Set the difficulty from **1–10**, your side, match length, and any other options.
-3. Press **Play with computer** to begin.
+3. Press **Start game** to begin.
 
 Black moves first. If you choose White, the computer makes the opening move. Computer games work offline. The levels use a classical search algorithm, with more thinking time and a deeper search at higher settings.
 
@@ -85,7 +85,7 @@ Only the host needs the desktop app. The other player can use a browser on a com
 
 1. Connect both devices to the same Wi-Fi or Ethernet network.
 2. The host opens **Connection → Host a LAN game** before creating a match.
-3. The host selects the game options and presses **Create Game**.
+3. Under **Host game**, the host selects the game options and presses **Create game & invite**.
 4. Share the invitation link shown beside the board, or let the other player scan its QR code.
 5. The other player opens that invitation in a browser. The game begins when they join.
 
@@ -93,8 +93,8 @@ If the other player has the desktop app too, **Join with a link** opens the invi
 
 ### Internet invitations
 
-1. Open the desktop or Android app and choose your game settings.
-2. Press **Create game**. tunnl.gg is selected by default, and its connector is included in both desktop and Android builds.
+1. Open the desktop or Android app, select **Host game**, and choose your game settings.
+2. Press **Create game & invite**. tunnl.gg is selected by default, and its connector is included in both desktop and Android builds.
 3. Wait for the invitation, then press **Share link** (or **Copy link** if sharing is unavailable).
 4. Your friend opens the HTTPS link in a browser on their phone or computer. They do not need an account, password, or installed app.
 5. Keep the host app open and awake. On Android, return to the game after using the share sheet.

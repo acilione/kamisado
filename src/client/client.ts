@@ -9,6 +9,7 @@ import { connectGameSocket } from './transport.js';
 import { PeerPanel } from './peer-panel.js';
 import { normalizePeerInvitation } from '../shared/peer-invitation.js';
 import { installTunnelPanel } from './tunnel-panel.js';
+import { installMainMenu } from './main-menu.js';
 
 const requestedPeerMode = new URLSearchParams(window.location.search).get('peer');
 const peer = requestedPeerMode === 'host' || requestedPeerMode === 'guest' ? new PeerPanel(requestedPeerMode) : null;
@@ -61,14 +62,16 @@ if (peer) {
     document.getElementById('app-join-options')!.classList.toggle('hidden', peer.role === 'guest');
     if (peer.role === 'guest') document.getElementById('create-game-options')!.classList.add('hidden');
 }
+const menuMode = installMainMenu(peer?.role === 'guest' ? 'join'
+    : opponentSelect.value === 'computer' || window.__KAMISADO_MOBILE__ ? 'computer'
+    : peer?.role === 'host' || prepareTunnel || window.parent !== window ? 'host' : 'computer', peer?.role === 'guest');
 function updateOpponentOptions(): void {
-    document.getElementById('computer-options')!.classList.remove('hidden');
+    menuMode.select(opponentSelect.value === 'computer' ? 'computer' : 'host');
 }
 opponentSelect.addEventListener('change', updateOpponentOptions);
 aiLevelSelect.addEventListener('change', () => {
     try { localStorage.setItem('kamisado_aiLevel', aiLevelSelect.value); } catch { /* Session preference. */ }
 });
-updateOpponentOptions();
 leaveComputerBtn.addEventListener('click', leaveComputerGame);
 const invitation = new InvitationPanel(window.__KAMISADO_RUNTIME_CONFIG__?.publicOrigin || window.location.origin);
 socket.on('runtimeConfig', config => {
@@ -264,7 +267,7 @@ async function createGame(opponent: 'computer' | 'human'): Promise<void> {
     if (!connectionReady || hostStopped || peer?.role === 'guest' || preparingGame) return;
     if (opponent === 'human' && (peer || prepareTunnel)) {
         preparingGame = true;
-        const controls = [...document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('#create-game-options input, #create-game-options select, #create-game-options button')];
+        const controls = [...document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('#create-game-options input, #create-game-options select, #create-game-options button, #play-mode-picker button')];
         const disabled = controls.map(control => control.disabled);
         controls.forEach(control => { control.disabled = true; });
         try {

@@ -82,6 +82,8 @@ Run the connector tests from `native/tunnl/` with `go test ./...`. For an option
 | `npm run desktop:make` | Packages the application and creates a portable ZIP under `out/make/zip/`. |
 | `npm run release:desktop` | Collects the portable build, ZIP, guide, and checksums into `out/release/<platform>-desktop/`. |
 | `npm run release:android` | Collects the debug APK and instructions into `out/release/Android/`. |
+| `npm run mobile:sync:release` | Minifies the shared UI, AI worker, guest UI and CSS, then syncs the native projects. |
+| `npm run release:android:signed` | Collects an existing signed release APK and instructions into `out/release/Android/`. |
 
 Each command rebuilds before running Forge. `desktop:dev` has no source watcher; restart it after changing TypeScript. Packaging uses [`forge.config.js`](../forge.config.js), stores application files in `app.asar`, unpacks native `.node` modules, and copies `desktop/START-HERE.txt` into the package directory.
 
@@ -143,6 +145,7 @@ This runs type checking, unit tests, then integration tests. Integration tests b
 | `npm run test:integration` | Games, spectators, links, reconnection, lobby refresh, socket resilience, and computer matches. |
 | `npm run test:browser` | Board views, invitations, computer games, the launcher UI, manual WebRTC, and quick join against a local PeerServer in Chromium. |
 | `npm run test:mobile` | Offline phone play, touch layouts, and P2P interoperability with desktop using the mobile bundle. |
+| `npm run test:mobile:release` | Runs the same checks against the minified release bundle. |
 | `npm run test:p2p-relay` | Quick and manual connections through a real TURN service, invalid credentials, invitation privacy, and desktop/mobile moves. Requires the test relay variables below. |
 | `npm run test:desktop` | Launches an existing packaged application and checks real desktop, browser guest, P2P, and offline play flows. |
 
@@ -197,6 +200,7 @@ Set variables in the shell before starting the relevant command. The application
 | `TEST_SERVER_URL` | Individual integration test files | Server URL when running a test directly; the suite runner supplies its own URL. |
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE` | Browser and packaged tests | Use a specific Chromium executable instead of Playwright's installed browser. |
 | `KAMISADO_PACKAGED_EXECUTABLE` | `test:desktop` | Override the packaged application executable to launch. |
+| `KAMISADO_ANDROID_SIGNING_PROPERTIES` | Android Gradle builds | Absolute path to the private signing properties file; defaults to `~/.kamisado/android-signing.properties`. |
 
 To test the optional ngrok relay from source, build first, set `NGROK_AUTHTOKEN`, then run `npm run ngrok`. The script starts its own loopback server and prints the public URL. Do not run `npm start` on the same port alongside it. WebRTC play uses Quick connect or manual code exchange and does not use this script or a token.
 
@@ -210,7 +214,7 @@ For a candidate build, run **Desktop downloads** manually in GitHub Actions. It 
 2. Commit the release changes and push a matching `v<version>` tag. The workflow rejects tags that do not match `package.json`.
 3. Review the generated draft GitHub release and its downloads before publishing it.
 
-The tag workflow creates or updates a draft; it refuses to replace an already published release. Signing is not configured for the current downloads.
+The tag workflow creates or updates a draft; it refuses to replace an already published release. Desktop code signing is not configured. Android release signing uses the developer's private properties file and keystore; CI produces an unsigned release APK.
 
 Before publishing, extract and run the downloads on machines without development tools and check the packaged `START-HERE.txt`. Play a LAN round from a second device and a P2P round across two separate Internet connections. Check both board views, symbol mode, computer play, and session shutdown. Local automated tests do not cover those operating-system and network combinations. Test ngrok with a real account if offering the relay, and record any platform limitations in the release notes.
 
@@ -230,7 +234,7 @@ For a non-default architecture or output directory, pass all three arguments:
 node scripts/collect-desktop-artifacts.cjs out/make/zip/darwin/x64 out/release/macOS-desktop x64
 ```
 
-For Android, build the debug APK first, then run `npm run release:android`. It copies the APK into `out/release/Android/` with installation instructions and checksums. A custom APK source and destination can be passed to `node scripts/collect-android-artifacts.cjs <debug-apk> <destination>`. This command labels the APK as a test build; production signing remains a separate step.
+For Android debug builds, run `npm run release:android` after assembling the APK. For signed releases, use `npm run mobile:sync:release`, Gradle's `assembleRelease` task, and `npm run release:android:signed`. Both collection commands require an empty destination and copy the APK, installation instructions and checksums into `out/release/Android/`. A custom source and destination can be passed to `node scripts/collect-android-artifacts.cjs [--release] <apk> <destination>`. See [release signing](mobile.md#signed-release-apk) for the credentials file, R8 mappings and unsigned CI artifacts.
 
 See [Architecture](architecture.md) for the source layout and runtime boundaries, and [AI research](ai-research.md) for the search design and its limits.
 

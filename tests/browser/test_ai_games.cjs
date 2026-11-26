@@ -28,7 +28,7 @@ async function run() {
     assert.equal(await page.locator('#computer-options').isVisible(), true);
     assert.equal(await page.locator('#computer-options').isVisible(), true);
     assert.equal(await page.locator('#ai-level option').count(), 10);
-    assert.equal(await page.locator('#play-computer-btn').textContent(), 'Play with computer');
+    assert.equal(await page.locator('#play-computer-btn').textContent(), 'Start game');
     await page.locator('#ai-level').selectOption('1');
     await page.locator('#color-mode').selectOption('black');
     await page.screenshot({ path: path.join(screenshots, 'computer-menu.png'), fullPage: true });
@@ -81,6 +81,7 @@ async function run() {
     await page.locator('#play-computer-btn').click();
     await page.locator('#leave-computer-btn').click();
     await page.locator('#menu-screen').waitFor({ state: 'visible' });
+    await page.locator('button[data-play-mode="host"]').click();
     await page.locator('#create-btn').click();
     await page.locator('#invite-panel').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#computer-status').isVisible(), false);

@@ -29,6 +29,8 @@ Android and iOS apps use the same game code through Capacitor. They share offlin
 
 ## Ways to play
 
+The game menu separates **Computer**, **Host game**, and **Join game**. Choose your mode first: computer games show difficulty settings, hosting shows invitation options, and joining only asks for your friend's invitation. The board fills more of the screen by default; in 3D you can still rotate, zoom, and reset the view.
+
 | Mode | What you need |
 | --- | --- |
 | Computer | One desktop or mobile app. Works offline, with difficulty levels 1–10. |
@@ -195,6 +197,24 @@ adb shell am start -n io.github.acilione.kamisado/.MainActivity
 ```
 
 This produces a development-signed APK. See the [mobile guide](docs/mobile.md#android-build) for release signing. Run `npm run mobile:sync` before each native rebuild after changing game code or assets.
+
+For an optimized, signed APK, first configure your [release signing key](docs/mobile.md#signed-release-apk), then run:
+
+```powershell
+# Windows PowerShell
+npm run mobile:sync:release
+.\mobile\android\gradlew.bat -p mobile/android assembleRelease
+npm run release:android:signed
+```
+
+```sh
+# Linux or macOS
+npm run mobile:sync:release
+./mobile/android/gradlew -p mobile/android assembleRelease
+npm run release:android:signed
+```
+
+The signed APK is `mobile/android/app/build/outputs/apk/release/app-release.apk`; the collected download is `out/release/Android/Kamisado-1.0.0-Android.apk`. Release builds minify JavaScript and CSS, optimize Android code, and remove unused Android resources. Without signing credentials, Gradle produces `app-release-unsigned.apk`, which must be signed before installation. The collector requires an empty output folder.
 
 ### iOS on macOS
 

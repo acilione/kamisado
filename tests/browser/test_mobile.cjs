@@ -115,6 +115,17 @@ async function run() {
     await solo.page.locator('#menu-screen').waitFor();
     assert.equal(await solo.page.locator('#peer-panel').isVisible(), false);
     assert.equal(await solo.page.locator('#play-computer-btn').isVisible(), true);
+    assert.equal(await solo.page.locator('#create-btn').isVisible(), false);
+    assert.equal(await solo.page.locator('#tunnel-options').isVisible(), false);
+    await solo.page.locator('#ai-level').selectOption('3');
+    await solo.page.locator('button[data-play-mode="host"]').tap();
+    assert.equal(await solo.page.locator('#computer-options').isVisible(), false);
+    assert.equal(await solo.page.locator('#create-btn').isVisible(), true);
+    await solo.page.locator('button[data-play-mode="join"]').tap();
+    assert.equal(await solo.page.locator('#create-game-options').isVisible(), false);
+    assert.equal(await solo.page.locator('#app-join-options').isVisible(), true);
+    await solo.page.locator('button[data-play-mode="computer"]').tap();
+    assert.equal(await solo.page.locator('#ai-level').inputValue(), '3', 'Changing play mode preserves settings');
     await solo.page.screenshot({ path: path.join(screenshots, 'home.png'), fullPage: true });
     // Playwright WebKit's offline flag also blocks local blob: worker loading.
     // Block every HTTP request there; Chromium additionally disables its network stack.
@@ -134,6 +145,8 @@ async function run() {
       assert.equal(await solo.page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Board and controls fit the viewport');
     }
     await solo.page.setViewportSize({ width: 390, height: 844 });
+    const boardBounds = await solo.page.locator('#board').boundingBox();
+    assert.ok(boardBounds.width >= 390 * 0.9, 'The default phone board uses at least 90% of the screen width');
     await solo.page.screenshot({ path: path.join(screenshots, 'offline-symbols.png'), fullPage: true });
     await solo.page.locator('#game-board-view').selectOption('realistic-3d');
     await solo.page.locator('#board-3d canvas:visible, #board:visible .realistic-tower').first().waitFor();
@@ -177,7 +190,11 @@ async function run() {
       const guest = await context();
       await host.page.goto(mobileHosts ? origin : desktopOrigin + '/?peer=host');
       await guest.page.goto(mobileHosts ? desktopOrigin + '/?peer=guest' : origin);
-      if (!mobileHosts) await guest.page.locator('#join-peer-btn').tap();
+      if (!mobileHosts) {
+        await guest.page.locator('button[data-play-mode="join"]').tap();
+        await guest.page.locator('#join-peer-btn').tap();
+      }
+      await host.page.locator('button[data-play-mode="host"]').tap();
       await host.page.locator('#color-mode').selectOption('black');
       await host.page.locator('#create-btn').tap();
       await connect(host.page, guest.page);

@@ -21,14 +21,18 @@
     "desktop:make": "npm run build && npm run tunnel:build && electron-forge make",
     "release:desktop": "node scripts/collect-desktop-artifacts.cjs",
     "release:android": "node scripts/collect-android-artifacts.cjs",
+    "release:android:signed": "node scripts/collect-android-artifacts.cjs --release",
     "test:p2p-relay": "npm run build && npm run mobile:build && node tests/browser/test_p2p_relay.cjs && node tests/browser/test_quick_join.cjs",
     "test:desktop": "node scripts/test-packaged-app.cjs",
     "mobile:build": "node scripts/build-mobile.cjs",
+    "mobile:build:release": "node scripts/build-mobile.cjs --release",
     "mobile:tunnel": "node scripts/build-android-tunnel.cjs && node scripts/build-tunnl.cjs --android",
     "mobile:sync": "npm run mobile:build && cap sync",
+    "mobile:sync:release": "npm run mobile:build:release && cap sync",
     "mobile:android": "npm run mobile:sync && cap open android",
     "mobile:ios": "npm run mobile:sync && cap open ios",
-    "test:mobile": "npm run build && npm run mobile:build && node tests/browser/test_mobile.cjs"
+    "test:mobile": "npm run build && npm run mobile:build && node tests/browser/test_mobile.cjs",
+    "test:mobile:release": "npm run build && npm run mobile:build:release && node tests/browser/test_mobile.cjs"
   },
   "keywords": [
     "kamisado",

@@ -35,7 +35,7 @@
 #message { overflow-wrap: anywhere; }
 #board-3d {
     width: 100%;
-    height: clamp(340px, 75vw, 640px);
+    height: clamp(280px, 84vw, 680px);
     border-radius: 14px;
     overflow: hidden;
     background: radial-gradient(ellipse at center, #35322b, #181b20 78%);
@@ -91,7 +91,7 @@
 #app[data-board-view="realistic-3d"] #board-options { width: 640px; }
 
 #app[data-board-view="realistic-2d"] {
-    --cell-size: clamp(27px, calc((100vw - 82px) / 8), 66px);
+    --cell-size: min(calc((100vw - 72px) / 8), 84px);
 }
 #app[data-board-view="realistic-2d"] #board-container {
     padding: 6px 0 12px;
@@ -188,6 +188,9 @@
     z-index: 3;
 }
 @media (max-width: 600px) {
+    #app[data-board-view="realistic-2d"] { --cell-size: calc((100vw - 48px) / 8); }
+    #app[data-board-view="realistic-2d"] #board { border-width: 12px; }
+    #app[data-board-view="realistic-2d"] #board-options { width: calc(8 * var(--cell-size) + 24px); }
     #camera-controls { justify-content: center; }
     .board-toolbar .board-view-label { gap: 7px; }
     .board-toolbar .board-view-select { font-size: 0.8rem; padding: 7px 5px; }

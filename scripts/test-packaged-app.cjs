@@ -129,9 +129,10 @@ async function main() {
     assert.equal(await app.evaluate(({ app }) => app.isPackaged), true, 'must test the packaged app');
     assert.equal(await app.evaluate(() => process.versions.electron), require('../package.json').devDependencies.electron, 'packaged runtime must match the pinned Electron version');
     await shell.frameLocator('#game-frame').locator('#create-btn').waitFor();
-    await shell.frameLocator('#game-frame').locator('#join-peer-btn').waitFor();
-    assert.equal(await shell.frameLocator('#game-frame').locator('#play-computer-btn').isVisible(), true, 'Game settings precede both play actions');
+    assert.equal(await shell.frameLocator('#game-frame').locator('#play-computer-btn').isVisible(), false, 'Hosting hides computer settings');
+    await shell.frameLocator('#game-frame').locator('button[data-play-mode="join"]').click();
     assert.equal(await shell.frameLocator('#game-frame').locator('#join-peer-btn').isVisible(), true, 'Joining is available from the settings menu');
+    await shell.frameLocator('#game-frame').locator('button[data-play-mode="host"]').click();
     await shell.locator('#hosting-settings').click();
     await shell.locator('#lan-button').waitFor({ state: 'visible' });
     assert.equal(await shell.locator('#join-invitation').isVisible(), true, 'a LAN guest can paste a complete invitation');
@@ -345,7 +346,7 @@ async function main() {
     console.log('Packaged smoke: start an offline computer game');
     await shell.locator('#computer-button').click();
     const solo = shell.frameLocator('#game-frame');
-    await solo.locator('#create-btn').waitFor({ state: 'visible' });
+    await solo.locator('#play-computer-btn').waitFor({ state: 'visible' });
     const offline = await shell.evaluate(() => window.kamisadoDesktop.getState());
     assert.equal(offline.status, 'ready');
     assert.equal(offline.localOnly, true);
@@ -372,7 +373,7 @@ async function main() {
     await shell.locator('#computer-button').waitFor({ state: 'visible' });
     await assertPortClosed(offline.port, 'Ending computer play must release its port');
     await shell.locator('#computer-button').click();
-    await solo.locator('#create-btn').waitFor({ state: 'visible' });
+    await solo.locator('#play-computer-btn').waitFor({ state: 'visible' });
     const offlineRestarted = await shell.evaluate(() => window.kamisadoDesktop.getState());
     assert.equal(offlineRestarted.localOnly, true);
     await solo.locator('#color-mode').selectOption('white');

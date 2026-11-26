@@ -37,6 +37,9 @@ jobs:
       - run: npm run test:mobile
         env:
           MOBILE_BROWSER: ${{ matrix.browser }}
+      - run: npm run test:mobile:release
+        env:
+          MOBILE_BROWSER: ${{ matrix.browser }}
 
   android:
     name: Android APK
@@ -69,6 +72,16 @@ jobs:
         with:
           name: Kamisado-Android-test
           path: out/release/Android/*
+          if-no-files-found: error
+          retention-days: 14
+      - run: npm run mobile:sync:release
+      - run: bash mobile/android/gradlew -p mobile/android assembleRelease --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Kamisado-Android-release-unsigned
+          path: |
+            mobile/android/app/build/outputs/apk/release/*-unsigned.apk
+            mobile/android/app/build/outputs/mapping/release/mapping.txt
           if-no-files-found: error
           retention-days: 14
 

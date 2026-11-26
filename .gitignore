@@ -11,6 +11,7 @@ npm-debug.log*
 *.jks
 *.keystore
 *.p12
+android-signing.properties
 *.mobileprovision
 
 .DS_Store

@@ -3,6 +3,7 @@ import type { OrbitControls } from 'three/addons/controls/OrbitControls.js' with
 import { BOARD_COLORS } from '../shared/constants.js';
 import type { GameState, Piece, PieceColor, PlayerColor } from '../shared/types.js';
 import { REALISTIC_COLORS, COLOR_CHARACTERS, COLOR_CHARACTER_PATHS, CHARACTER_VIEWBOX } from './realistic-art.js';
+import { frameBoardCamera } from './board-camera.js';
 
 export interface RealisticBoardOptions {
     state: GameState;
@@ -25,6 +26,8 @@ export class RealisticBoard3D {
     private readonly renderer: THREE.WebGLRenderer;
     private observer: ResizeObserver | null = null;
     private controls: OrbitControls | null = null;
+    private defaultCamera = true;
+    private fittingCamera = false;
     private readonly tiles: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>[][] = [];
     private readonly textures = new Map<string, THREE.CanvasTexture>();
     private readonly materials = new Map<string, THREE.Material>();
@@ -98,8 +101,8 @@ export class RealisticBoard3D {
                 this.controls.maxPolarAngle = Math.PI * 0.36;
                 this.controls.rotateSpeed = 0.55;
                 this.controls.zoomSpeed = 0.8;
-                this.controls.addEventListener('change', this.requestRender);
-                this.controls.update();
+                this.controls.addEventListener('change', this.cameraChanged);
+                this.resetCamera();
                 this.requestRender();
             }).catch(this.fail);
         } catch (error) {
@@ -160,19 +163,26 @@ export class RealisticBoard3D {
     }
 
     resetCamera(): void {
-        this.camera.position.set(0, 10.8, 11.8);
-        this.camera.lookAt(0, 0.2, 0);
+        this.defaultCamera = true;
+        this.fittingCamera = true;
+        frameBoardCamera(this.camera);
         this.controls?.target.set(0, 0.2, 0);
         this.controls?.update();
+        this.fittingCamera = false;
         this.requestRender();
     }
+
+    private readonly cameraChanged = (): void => {
+        if (!this.fittingCamera) this.defaultCamera = false;
+        this.requestRender();
+    };
 
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
         cancelAnimationFrame(this.frame);
         this.observer?.disconnect();
-        this.controls?.removeEventListener('change', this.requestRender);
+        this.controls?.removeEventListener('change', this.cameraChanged);
         this.controls?.dispose();
         const canvas = this.renderer.domElement;
         canvas.removeEventListener('pointerdown', this.pointerDown);
@@ -450,6 +460,7 @@ export class RealisticBoard3D {
         // Keep the horizontal framing when the host is taller than it is wide.
         this.camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(38 / 2)) / Math.min(1, this.camera.aspect)));
         this.camera.updateProjectionMatrix();
+        if (this.defaultCamera) this.resetCamera();
         this.requestRender();
     };
 
